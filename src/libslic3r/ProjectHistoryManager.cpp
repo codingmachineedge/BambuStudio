@@ -1067,7 +1067,7 @@ public:
         for (const std::string &identity_hash : identity_hashes) {
             auto lock = std::make_unique<InterprocessFileLock>();
             // Shutdown rejects newly enqueued work but joins the worker only after
-            // work already accepted by it has been committed.  Do not cancel a
+            // work already accepted by it has completed.  Do not cancel a
             // queued operation merely because it is waiting on another process's
             // bounded lock; otherwise a Save As or commit can be silently lost
             // during application shutdown.
