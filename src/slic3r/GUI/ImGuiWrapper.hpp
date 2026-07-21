@@ -367,8 +367,12 @@ public:
     static void on_change_color_mode(bool is_dark);
     static void push_toolbar_style(const float scale);
     static void pop_toolbar_style();
+    static void push_preview_toolbar_style(const float scale);
+    static void pop_preview_toolbar_style();
     static void push_menu_style(const float scale);
     static void pop_menu_style();
+    static void push_preview_menu_style(const float scale);
+    static void pop_preview_menu_style();
     static void push_common_window_style(const float scale);
     static void pop_common_window_style();
     static void push_confirm_button_style();

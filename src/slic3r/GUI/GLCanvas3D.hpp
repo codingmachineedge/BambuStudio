@@ -622,6 +622,10 @@ private:
     GLGizmosManager m_gizmos;
     //BBS: GUI refactor: GLToolbar
     mutable std::shared_ptr<GLToolbar> m_main_toolbar{ nullptr };
+    // Prepare keeps scene commands in the top toolbar and exposes object tools
+    // through a dedicated Material-style rail at the left edge of the canvas.
+    // Assembly view intentionally keeps its legacy combined toolbar.
+    mutable std::shared_ptr<GLToolbar> m_gizmo_toolbar{ nullptr };
     mutable IMToolbar m_sel_plate_toolbar;
     mutable IMToolbar m_assembly_view_thumbnail;
     mutable IMReturnToolbar m_return_toolbar;
@@ -993,6 +997,10 @@ public:
     bool  is_collapse_toolbar_on_left() const;
     float get_collapse_toolbar_width() const;
     float get_collapse_toolbar_height() const;
+    // Top edge of the Material gizmo rail in canvas screen pixels. Keeping this
+    // calculation on the canvas lets the rail and its input panes avoid the
+    // same collapse and return overlays.
+    float get_gizmo_toolbar_top_inset() const;
 
     void update_volumes_colors_by_extruder();
 
@@ -1368,6 +1376,8 @@ private:
     void _render_volumes_for_picking() const;
     void _render_current_gizmo() const;
     void _render_main_toolbar();
+    void _render_gizmo_toolbar();
+    void _calc_return_toolbar_position(float window_width, float& position_x, float& position_y) const;
     void _render_imgui_select_plate_toolbar();
     void _render_assembly_view_thumbnail_toolbar();
     void _render_assembly_view_preview_menu(float anchor_x, float anchor_y, float anchor_width, float anchor_height);
@@ -1463,6 +1473,7 @@ private:
     void _render_toolbar();
 
     const std::shared_ptr<GLToolbar>& get_main_toolbar() const;
+    const std::shared_ptr<GLToolbar>& get_gizmo_toolbar() const;
 
     static bool is_volume_in_plate_boundingbox(const GLVolume &v, int plate_idx, const BoundingBoxf3 &plate_build_volume);
     static void _init_fullscreen_mesh();

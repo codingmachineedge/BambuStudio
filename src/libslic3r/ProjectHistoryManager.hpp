@@ -49,8 +49,20 @@ struct ProjectHistoryCommitResult
 {
     ProjectHistoryError                  error;
     bool                                 committed{false};
+    bool                                 history_migrated{false};
     std::optional<ProjectHistoryVersion> version;
+    std::filesystem::path                previous_repository_path;
     std::filesystem::path                repository_path;
+
+    bool ok() const noexcept { return error.ok(); }
+};
+
+struct ProjectHistoryMigrationResult
+{
+    ProjectHistoryError   error;
+    bool                  migrated{false};
+    std::filesystem::path source_repository_path;
+    std::filesystem::path destination_repository_path;
 
     bool ok() const noexcept { return error.ok(); }
 };
@@ -93,6 +105,22 @@ public:
     std::future<ProjectHistoryCommitResult> commit_snapshot(std::filesystem::path       project_path,
                                                             std::filesystem::path       completed_snapshot_path,
                                                             ProjectHistoryCommitOptions options = {});
+
+    // Forks the complete repository for previous_project_path to the identity
+    // for new_project_path. The source remains intact, the destination must not
+    // already exist, and a missing source is a successful no-op. Publication is
+    // atomic: ownership metadata is changed and validated in a staging copy
+    // before it becomes visible at the destination.
+    std::future<ProjectHistoryMigrationResult> migrate_history_identity(std::filesystem::path previous_project_path,
+                                                                        std::filesystem::path new_project_path);
+
+    // Save As integration primitive. Migration and commit run as one queued
+    // operation; a destination collision fails before any snapshot can be
+    // appended to that destination's unrelated history.
+    std::future<ProjectHistoryCommitResult> migrate_then_commit_snapshot(std::filesystem::path       previous_project_path,
+                                                                         std::filesystem::path       new_project_path,
+                                                                         std::filesystem::path       completed_snapshot_path,
+                                                                         ProjectHistoryCommitOptions options = {});
 
     std::future<ProjectHistoryListResult> list_versions(std::filesystem::path project_path, std::size_t max_count = 0);
 

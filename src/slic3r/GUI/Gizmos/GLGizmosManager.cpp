@@ -1386,6 +1386,7 @@ void GLGizmosManager::add_toolbar_items(const std::shared_ptr<GLToolbar>& p_tool
     std::vector<size_t> selectable_idxs = get_selectable_idxs();
 
     auto p_gizmo_manager = this;
+    const std::weak_ptr<GLToolbar> weak_toolbar = p_toolbar;
     for (size_t i = 0; i < m_gizmos.size(); ++i)
     {
         const auto idx = i;
@@ -1418,12 +1419,24 @@ void GLGizmosManager::add_toolbar_items(const std::shared_ptr<GLToolbar>& p_tool
         item.left.toggable = true;
         item.b_toggle_disable_others = false;
         item.b_toggle_affectable = false;
-        item.left.render_callback = [p_gizmo_manager, idx](float left, float right, float bottom, float top, float toolbar_height) {
+        item.left.render_callback = [p_gizmo_manager, weak_toolbar, idx](float left, float right, float bottom, float top, float toolbar_height) {
             if (p_gizmo_manager->get_current_type() != idx) {
                 return;
             }
             float cnv_h = (float)p_gizmo_manager->m_parent.get_canvas_size().get_height();
-            p_gizmo_manager->m_gizmos[idx]->render_input_window(left, toolbar_height, cnv_h);
+            float input_x = left;
+            float input_y = toolbar_height;
+            GLGizmoBase::EInputWindowAnchor input_anchor = GLGizmoBase::EInputWindowAnchor::Toolbar;
+            if (const auto toolbar = weak_toolbar.lock();
+                toolbar && toolbar->get_layout().type == ToolbarLayout::EType::Vertical) {
+                const auto& camera = p_gizmo_manager->m_parent.get_active_camera();
+                const float inv_zoom = static_cast<float>(camera.get_inv_zoom());
+                const float canvas_scale = p_gizmo_manager->m_parent.get_scale();
+                input_x = right + 8.0f * canvas_scale * inv_zoom;
+                input_y = p_gizmo_manager->m_parent.get_gizmo_toolbar_top_inset();
+                input_anchor = GLGizmoBase::EInputWindowAnchor::LeftEdge;
+            }
+            p_gizmo_manager->m_gizmos[idx]->render_input_window(input_x, input_y, cnv_h, input_anchor);
         };
         item.pressed_recheck_callback = [p_gizmo_manager, t_type]()->bool {
             return p_gizmo_manager->m_current == t_type;

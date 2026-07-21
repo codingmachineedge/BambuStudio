@@ -499,8 +499,10 @@ protected:
     ImageSwitchButton *m_switch_speed;
 
     /* TempInput */
-    wxBoxSizer *    m_misc_ctrl_sizer;
+    wxBoxSizer *    m_misc_ctrl_sizer{ nullptr };
     StaticBox*      m_temperature_control_box{ nullptr };
+    StaticBox*      m_print_options_box{ nullptr };
+    StaticBox*      m_move_control_box{ nullptr };
     StaticBox*      m_fan_panel{ nullptr };
     StaticLine *    m_line_nozzle;
     TempInput*      m_tempCtrl_nozzle;
@@ -535,7 +537,6 @@ protected:
     Button *        m_bpButton_e_down_10;
     ExtruderSwithingStatus *m_extruder_switching_status;
 
-    wxPanel *       m_temp_temp_line;
     wxPanel *       m_temp_extruder_line;
     bool            m_show_filament_group{ false };
 
@@ -614,6 +615,8 @@ public:
     wxBoxSizer *create_machine_control_page(wxWindow *parent);
 
     wxBoxSizer *create_temp_axis_group(wxWindow *parent);
+    StaticBox *create_print_options_group(wxWindow *parent);
+    StaticBox *create_move_group(wxWindow *parent);
     wxBoxSizer *create_temp_control(wxWindow *parent);
     wxBoxSizer *create_misc_control(wxWindow *parent);
     wxBoxSizer *create_axis_control(wxWindow *parent);

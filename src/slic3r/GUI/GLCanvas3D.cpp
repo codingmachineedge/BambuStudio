@@ -1735,6 +1735,9 @@ void GLCanvas3D::on_change_color_mode(bool is_dark, bool reinit) {
             if (p_main_toolbar) {
                 p_main_toolbar->set_icon_dirty();
             }
+            if (m_gizmo_toolbar) {
+                m_gizmo_toolbar->set_icon_dirty();
+            }
             wxGetApp().plater()->get_collapse_toolbar().set_icon_dirty();
         }
     }
@@ -1745,6 +1748,9 @@ void GLCanvas3D::on_change_color_mode(bool is_dark, bool reinit) {
             const auto& p_main_toolbar = get_main_toolbar();
             if (p_main_toolbar) {
                 p_main_toolbar->set_icon_dirty();
+            }
+            if (m_gizmo_toolbar) {
+                m_gizmo_toolbar->set_icon_dirty();
             }
         }
         // The dark-mode switch relayouts/resizes the canvas, leaving the assembly
@@ -2475,6 +2481,9 @@ void GLCanvas3D::enable_main_toolbar(bool enable)
         return;
     }
     p_main_toolbar->set_enabled(enable);
+    if (m_canvas_type == ECanvasType::CanvasView3D) {
+        get_gizmo_toolbar()->set_enabled(enable);
+    }
 }
 
 void GLCanvas3D::reset_select_plate_toolbar_selection() {
@@ -2693,6 +2702,65 @@ float GLCanvas3D::get_collapse_toolbar_height() const
     return state != Sidebar::None ? collapse_toolbar.get_height() : 0;
 }
 
+void GLCanvas3D::_calc_return_toolbar_position(float window_width, float& position_x, float& position_y) const
+{
+    const float canvas_width = static_cast<float>(get_canvas_size().get_width());
+
+    position_x = 30.0f + (is_collapse_toolbar_on_left() ? get_collapse_toolbar_width() + 5.0f : 0.0f);
+    position_y = 14.0f;
+
+    // In assemble view the Assembly Structure panel owns the top-left corner.
+    if (m_canvas_type == ECanvasType::CanvasAssembleView && m_assembly_steps) {
+        const float anchor_x = m_assembly_steps->get_assembly_structure_right_x();
+        if (anchor_x > 0.0f) {
+            position_x = anchor_x + 8.0f * get_scale();
+            position_y = 20.0f;
+        }
+    }
+
+    if (m_canvas_type != ECanvasType::CanvasView3D)
+        return;
+
+    float left_position = 0.0f;
+    const auto& main_toolbar = get_main_toolbar();
+    if (main_toolbar) {
+        const auto add_item = main_toolbar->get_item("add");
+        if (add_item)
+            left_position = add_item->render_rect[0];
+    }
+
+    const float toolbar_x = 0.5f * canvas_width +
+                            left_position * static_cast<float>(get_active_camera().get_zoom());
+    constexpr float margin = 5.0f;
+    if (toolbar_x < window_width + margin * 3.0f) {
+        position_x = margin;
+        position_y = 2.0f + (main_toolbar ? main_toolbar->get_height() : 0.0f);
+    }
+}
+
+float GLCanvas3D::get_gizmo_toolbar_top_inset() const
+{
+    const float margin = 8.0f * get_scale();
+    float       inset  = margin + get_collapse_toolbar_height();
+
+    // An active gizmo exposes the return affordance in the same top-left
+    // region. Reserve its actual ImGui height plus the rail margin so the two
+    // controls never cover one another.
+    if (m_canvas_type == ECanvasType::CanvasView3D && m_return_toolbar.is_enabled()) {
+        const float font_size = ImGui::GetFontSize();
+        const float padding = wxGetApp().imgui()->scaled(2.0f);
+        const float return_toolbar_width = font_size * 4.0f + font_size * 1.3f + padding;
+        const float return_toolbar_height = font_size * 1.3f + padding;
+        [[maybe_unused]] float return_toolbar_x = 0.0f;
+        float return_toolbar_y = 0.0f;
+        _calc_return_toolbar_position(return_toolbar_width, return_toolbar_x, return_toolbar_y);
+        const float return_toolbar_bottom = return_toolbar_y + return_toolbar_height;
+        inset = std::max(inset, return_toolbar_bottom + margin);
+    }
+
+    return inset;
+}
+
 bool GLCanvas3D::make_current_for_postinit() {
     return _set_current(true);
 }
@@ -2806,6 +2874,11 @@ void GLCanvas3D::render(bool only_init)
             const auto toolbar_style = p_ogl_manager->get_toolbar_rendering_style();
             m_main_toolbar->set_rendering_mode(static_cast<GLToolbar::EToolbarRenderingMode>(toolbar_style));
         }
+    }
+    // The left rail is intrinsically vertical. The KeepSize renderer wraps
+    // horizontal toolbars and therefore must never be selected for this rail.
+    if (m_gizmo_toolbar) {
+        m_gizmo_toolbar->set_rendering_mode(GLToolbar::EToolbarRenderingMode::Auto);
     }
 
     auto& ogl_manager = *p_ogl_manager;
@@ -3020,6 +3093,10 @@ void GLCanvas3D::render(bool only_init)
             if (p_main_toolbar) {
                 tooltip = p_main_toolbar->get_tooltip();
             }
+        }
+
+        if (tooltip.empty() && m_gizmo_toolbar) {
+            tooltip = m_gizmo_toolbar->get_tooltip();
         }
 
 	    if (tooltip.empty())
@@ -4273,6 +4350,9 @@ bool GLCanvas3D::_do_idle_work()
     if (p_main_toolbar) {
         m_dirty |= p_main_toolbar->update_items_state();
     }
+    if (m_gizmo_toolbar) {
+        m_dirty |= m_gizmo_toolbar->update_items_state();
+    }
     // BBS
     //m_dirty |= wxGetApp().plater()->get_view_toolbar().update_items_state();
     m_dirty |= wxGetApp().plater()->sidebar().get_update_3d_state();
@@ -5270,25 +5350,77 @@ void GLCanvas3D::schedule_extra_frame(int miliseconds)
 
 int GLCanvas3D::get_main_toolbar_item_id(const std::string& name) const
 {
-    if (!m_main_toolbar) {
-        return -1;
+    if (m_main_toolbar) {
+        const int item_id = m_main_toolbar->get_item_id(name);
+        if (item_id >= 0) {
+            return item_id;
+        }
     }
-    return m_main_toolbar->get_item_id(name);
+
+    if (m_gizmo_toolbar) {
+        const int item_id = m_gizmo_toolbar->get_item_id(name);
+        if (item_id >= 0) {
+            // Keep the long-standing public API intact while making the owning
+            // toolbar unambiguous. -1 remains the not-found sentinel.
+            return -item_id - 2;
+        }
+    }
+
+    return -1;
 }
 
 void GLCanvas3D::force_main_toolbar_left_action(int item_id)
 {
-    if (!m_main_toolbar) {
+    if (item_id <= -2) {
+        if (!m_gizmo_toolbar) {
+            return;
+        }
+        const int gizmo_item_id = -item_id - 2;
+        m_dirty |= m_gizmo_toolbar->update_items_state();
+        const auto& items = m_gizmo_toolbar->get_items();
+        if (gizmo_item_id < 0 || gizmo_item_id >= static_cast<int>(items.size()) ||
+            !items[gizmo_item_id] || items[gizmo_item_id]->is_disabled() || items[gizmo_item_id]->is_separator()) {
+            return;
+        }
+
+        _deactivate_arrange_menu();
+        _deactivate_orient_menu();
+        _deactivate_layersediting_menu();
+        m_gizmo_toolbar->force_left_action(gizmo_item_id, *this);
+        return;
+    }
+
+    if (!m_main_toolbar || item_id < 0) {
         return;
     }
 
     m_dirty |= m_main_toolbar->update_items_state();
+    const auto& items = m_main_toolbar->get_items();
+    if (item_id >= static_cast<int>(items.size()) || !items[item_id] ||
+        items[item_id]->is_disabled() || items[item_id]->is_separator()) {
+        return;
+    }
+
+    if (m_gizmos.get_current_type() != GLGizmosManager::EType::Undefined) {
+        m_gizmos.reset_all_states();
+        m_gizmos.update_data();
+        if (m_gizmo_toolbar) {
+            m_dirty |= m_gizmo_toolbar->update_items_state();
+        }
+    }
     m_main_toolbar->force_left_action(item_id, *this);
 }
 
 void GLCanvas3D::force_main_toolbar_right_action(int item_id)
 {
-    m_main_toolbar->force_right_action(item_id, *this);
+    if (item_id <= -2) {
+        if (m_gizmo_toolbar) {
+            m_gizmo_toolbar->force_right_action(-item_id - 2, *this);
+        }
+    }
+    else if (m_main_toolbar && item_id >= 0) {
+        m_main_toolbar->force_right_action(item_id, *this);
+    }
 }
 
 #ifndef NDEBUG
@@ -5433,9 +5565,46 @@ void GLCanvas3D::on_mouse(wxMouseEvent& evt)
 #endif /* SLIC3R_DEBUG_MOUSE_EVENTS */
 	}
 
+    const auto has_hovered_enabled_item = [](const std::shared_ptr<GLToolbar>& toolbar) {
+        if (!toolbar || !toolbar->is_enabled()) {
+            return false;
+        }
+        for (const auto& item : toolbar->get_items()) {
+            if (item && item->is_visible() && item->is_hovered() && !item->is_disabled() && !item->is_separator()) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    const bool is_left_action = evt.LeftDown() || evt.LeftDClick();
     const auto& p_main_toolbar = get_main_toolbar();
+    if (is_left_action && has_hovered_enabled_item(p_main_toolbar) &&
+        m_gizmos.get_current_type() != GLGizmosManager::EType::Undefined) {
+        // These items used to share one toolbar. Preserve its cross-toggle
+        // behavior when a scene command is activated while a gizmo is open.
+        m_gizmos.reset_all_states();
+        m_gizmos.update_data();
+        if (m_gizmo_toolbar) {
+            m_dirty |= m_gizmo_toolbar->update_items_state();
+        }
+    }
     if (p_main_toolbar) {
         if (p_main_toolbar->on_mouse(evt, *this)) {
+            if (evt.LeftUp() || evt.MiddleUp() || evt.RightUp())
+                mouse_up_cleanup();
+            m_mouse.set_start_position_3D_as_invalid();
+            return;
+        }
+    }
+
+    if (m_gizmo_toolbar) {
+        if (is_left_action && has_hovered_enabled_item(m_gizmo_toolbar)) {
+            _deactivate_arrange_menu();
+            _deactivate_orient_menu();
+            _deactivate_layersediting_menu();
+        }
+        if (m_gizmo_toolbar->on_mouse(evt, *this)) {
             if (evt.LeftUp() || evt.MiddleUp() || evt.RightUp())
                 mouse_up_cleanup();
             m_mouse.set_start_position_3D_as_invalid();
@@ -5490,6 +5659,9 @@ void GLCanvas3D::on_mouse(wxMouseEvent& evt)
             const auto& p_main_toolbar = get_main_toolbar();
             if (p_main_toolbar) {
                 p_main_toolbar->on_mouse(evt2, *this);
+            }
+            if (m_gizmo_toolbar) {
+                m_gizmo_toolbar->on_mouse(evt2, *this);
             }
         }
 
@@ -7356,6 +7528,16 @@ bool GLCanvas3D::_render_arrange_menu(float left, float toolbar_height)
 
 static float       identityMatrix[16]   = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
 static const float cameraProjection[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+static float get_3d_navigator_scale(const GLCanvas3D& canvas)
+{
+    float scale = canvas.get_scale();
+#ifdef WIN32
+    const int dpi = get_dpi_for_window(wxGetApp().GetTopWindow());
+    scale *= static_cast<float>(dpi) / static_cast<float>(DPI_DEFAULT);
+#endif // WIN32
+    return scale;
+}
+
 void GLCanvas3D::_render_3d_navigator()
 {
     const bool is_assembly_nav = (m_canvas_type == ECanvasType::CanvasAssembleView) && m_assembly_steps;
@@ -7388,11 +7570,7 @@ void GLCanvas3D::_render_3d_navigator()
     strcpy(style.FaceLabels[ImGuizmo::FACES::FACE_LEFT], _CTX_utf8(L_CONTEXT("Left", "Camera"), "Camera").c_str());
     strcpy(style.FaceLabels[ImGuizmo::FACES::FACE_RIGHT], _CTX_utf8(L_CONTEXT("Right", "Camera"), "Camera").c_str());
 
-    float sc = get_scale();
-#ifdef WIN32
-    const int dpi = get_dpi_for_window(wxGetApp().GetTopWindow());
-    sc *= (float) dpi / (float) DPI_DEFAULT;
-#endif // WIN32
+    const float sc = get_3d_navigator_scale(*this);
 
     const ImGuiIO &io                 = ImGui::GetIO();
     const float    viewManipulateLeft = 0;
@@ -7590,6 +7768,11 @@ void GLCanvas3D::_switch_toolbars_icon_filename()
         p_main_toolbar->set_dark_mode_enabled(m_is_dark);
     }
 
+    if (m_gizmo_toolbar) {
+        m_gizmo_toolbar->init(background_data);
+        m_gizmo_toolbar->set_dark_mode_enabled(m_is_dark);
+    }
+
     wxGetApp().plater()->get_collapse_toolbar().init(background_data);
 
 }
@@ -7673,6 +7856,31 @@ bool GLCanvas3D::_init_main_toolbar()
     p_main_toolbar->set_gap_size(4);
 
     p_main_toolbar->del_all_item();
+
+    std::shared_ptr<GLToolbar> p_gizmo_toolbar;
+    bool use_vertical_gizmo_toolbar = false;
+    if (m_canvas_type == ECanvasType::CanvasView3D) {
+        p_gizmo_toolbar = get_gizmo_toolbar();
+        p_gizmo_toolbar->set_enabled(p_main_toolbar->is_enabled());
+        if (p_gizmo_toolbar->init(background_data)) {
+            p_gizmo_toolbar->set_dark_mode_enabled(m_is_dark);
+            p_gizmo_toolbar->set_rendering_mode(GLToolbar::EToolbarRenderingMode::Auto);
+            p_gizmo_toolbar->set_position_mode(ToolbarLayout::EPositionMode::Custom);
+            p_gizmo_toolbar->set_layout_type(ToolbarLayout::EType::Vertical);
+            p_gizmo_toolbar->set_horizontal_orientation(ToolbarLayout::HO_Center);
+            p_gizmo_toolbar->set_vertical_orientation(ToolbarLayout::VO_Center);
+            p_gizmo_toolbar->set_border(5.0f);
+            p_gizmo_toolbar->set_separator_size(5.0f);
+            p_gizmo_toolbar->set_gap_size(4.0f);
+            p_gizmo_toolbar->del_all_item();
+            use_vertical_gizmo_toolbar = true;
+        }
+        else {
+            // Retain the legacy combined toolbar as a functional fallback if
+            // the rail background cannot be created in the current GL context.
+            p_gizmo_toolbar->set_enabled(false);
+        }
+    }
 
     uint8_t sprite_id = 0;
     GLToolbarItem::Data item;
@@ -7845,7 +8053,20 @@ bool GLCanvas3D::_init_main_toolbar()
         }
     };
 
-    if (m_gizmos.is_enabled()) {
+    if (m_canvas_type == ECanvasType::CanvasView3D && use_vertical_gizmo_toolbar) {
+        // Scene-level operations remain in the compact top-center toolbar.
+        do_add_other_items(sprite_id);
+
+        if (m_gizmos.is_enabled()) {
+            // Sprite rows are local to each toolbar texture, so the rail owns
+            // an independent zero-based sequence.
+            uint8_t gizmo_sprite_id = 0;
+            m_gizmos.add_toolbar_items(p_gizmo_toolbar, gizmo_sprite_id, [](uint8_t&) {});
+        }
+    }
+    else if (m_gizmos.is_enabled()) {
+        // Assembly view, and the GL-resource fallback above, deliberately keep
+        // the established combined-toolbar behavior.
         m_gizmos.add_toolbar_items(p_main_toolbar, sprite_id, do_add_other_items);
     }
     else if (m_canvas_type == ECanvasType::CanvasView3D) {
@@ -7927,6 +8148,9 @@ bool GLCanvas3D::_init_main_toolbar()
     }
 
     p_main_toolbar->update_items_state();
+    if (use_vertical_gizmo_toolbar) {
+        p_gizmo_toolbar->update_items_state();
+    }
     return true;
 }
 
@@ -8947,6 +9171,7 @@ void GLCanvas3D::_check_and_update_toolbar_icon_scale()
     float scale = 1.0f;
 
     const auto& p_main_toolbar = get_main_toolbar();
+    const auto p_gizmo_toolbar = m_gizmo_toolbar;
     if (p_main_toolbar) {
         const bool auto_scale = p_main_toolbar->get_rendering_mode() == GLToolbar::EToolbarRenderingMode::Auto;
         scale = wxGetApp().toolbar_icon_scale(auto_scale);
@@ -8965,6 +9190,9 @@ void GLCanvas3D::_check_and_update_toolbar_icon_scale()
     if (p_main_toolbar) {
         p_main_toolbar->set_scale(sc);
     }
+    if (p_gizmo_toolbar) {
+        p_gizmo_toolbar->set_scale(sc);
+    }
 
     collapse_toolbar.set_scale(sc);
     size *= m_retina_helper->get_scale_factor();
@@ -8975,6 +9203,9 @@ void GLCanvas3D::_check_and_update_toolbar_icon_scale()
     //BBS: GUI refactor: GLToolbar
     if (p_main_toolbar) {
         p_main_toolbar->set_icons_size(size);
+    }
+    if (p_gizmo_toolbar) {
+        p_gizmo_toolbar->set_icons_size(size);
     }
     collapse_toolbar.set_icons_size(wxGetApp().plater()->get_collapse_toolbar_size());
 #endif // ENABLE_RETINA_GL
@@ -9005,10 +9236,26 @@ void GLCanvas3D::_check_and_update_toolbar_icon_scale()
         new_h_scale = 1;
     }
 
-    //use the same value as horizon
     float new_v_scale = new_h_scale;
+    if (p_gizmo_toolbar && p_gizmo_toolbar->is_enabled()) {
+        const int rail_items = p_gizmo_toolbar->get_visible_items_cnt();
+        if (rail_items > 0) {
+            const float rail_non_item_height = std::max(0.0f,
+                p_gizmo_toolbar->get_height() - size * static_cast<float>(rail_items));
+            const float rail_gap = 8.0f * get_scale();
+            float bottom_inset = rail_gap;
+            if (wxGetApp().show_3d_navigator() && can_show_3d_navigator()) {
+                bottom_inset += 128.0f * get_3d_navigator_scale(*this);
+            }
+            const float available_height = std::max(0.0f,
+                static_cast<float>(cnv_size.get_height()) - get_gizmo_toolbar_top_inset() - bottom_inset);
+            const float rail_scale = std::max(0.0f, available_height - rail_non_item_height) /
+                (static_cast<float>(rail_items) * GLToolbar::Default_Icons_Size);
+            new_v_scale = std::min(new_v_scale, rail_scale);
+        }
+    }
 #else
-    float top_tb_width = = collapse_toolbar.get_width();
+    float top_tb_width = collapse_toolbar.get_width();
     int   items_cnt = collapse_toolbar.get_visible_items_cnt();
     float noitems_width = top_tb_width - size * items_cnt; // width of separators and borders in top toolbars
 
@@ -9253,9 +9500,30 @@ void GLCanvas3D::_render_main_toolbar()
         }
     }
     p_main_toolbar->render(t_camera);
-    if (m_toolbar_highlighter.m_render_arrow){
-        p_main_toolbar->render_arrow(m_toolbar_highlighter.m_toolbar_item);
+    if (m_toolbar_highlighter.m_render_arrow) {
+        const auto highlighted_item = m_toolbar_highlighter.m_toolbar_item.lock();
+        const auto& main_items = p_main_toolbar->get_items();
+        if (highlighted_item && std::find(main_items.begin(), main_items.end(), highlighted_item) != main_items.end()) {
+            p_main_toolbar->render_arrow(m_toolbar_highlighter.m_toolbar_item);
+        }
     }
+}
+
+void GLCanvas3D::_render_gizmo_toolbar()
+{
+    if (m_canvas_type != ECanvasType::CanvasView3D || !m_gizmo_toolbar || !m_gizmo_toolbar->is_enabled()) {
+        return;
+    }
+
+    const auto& camera = get_active_camera();
+    const auto& viewport = camera.get_viewport();
+    const float inv_zoom = static_cast<float>(camera.get_inv_zoom());
+    const float margin = 8.0f * get_scale();
+
+    const float top = (0.5f * static_cast<float>(viewport[3]) - get_gizmo_toolbar_top_inset()) * inv_zoom;
+    const float left = (-0.5f * static_cast<float>(viewport[2]) + margin) * inv_zoom;
+    m_gizmo_toolbar->set_position(top, left);
+    m_gizmo_toolbar->render(camera);
 }
 
 //BBS: GUI refactor: GLToolbar adjust
@@ -10033,40 +10301,11 @@ void GLCanvas3D::_render_return_toolbar()
     ImVec2 button_icon_size = ImVec2(font_size * 1.3, font_size * 1.3);
 
     ImGuiWrapper& imgui = *wxGetApp().imgui();
-    Size cnv_size = get_canvas_size();
-    auto canvas_w = float(cnv_size.get_width());
-    auto canvas_h = float(cnv_size.get_height());
     float window_width = real_size.x + button_icon_size.x + imgui.scaled(2.0f);
     float window_height = button_icon_size.y + imgui.scaled(2.0f);
-    float window_pos_x  = 30.0f + (is_collapse_toolbar_on_left() ? (get_collapse_toolbar_width() + 5.f) : 0);
-    float window_pos_y = 14.0f;
-    // In assemble view the new "Assembly Structure" panel occupies the top-left corner; dock the return toolbar to its right edge with a small gap so the two never overlap.
-    if (m_canvas_type == ECanvasType::CanvasAssembleView) {
-        const float anchor_x = m_assembly_steps->get_assembly_structure_right_x();
-        if (anchor_x > 0.f) {
-            window_pos_x = anchor_x + 8.0f * get_scale();
-            window_pos_y = 20.f;
-        }
-    }
-    {//solve ui overlap issue
-        if (m_canvas_type == ECanvasType::CanvasView3D) {
-            float       zoom      = (float) get_active_camera().get_zoom();
-            float       left_pos = 0.0f;
-            const auto& p_main_toolbar = get_main_toolbar();
-            if (p_main_toolbar) {
-                left_pos = p_main_toolbar->get_item("add")->render_rect[0];
-            }
-            const float toolbar_x = 0.5 * canvas_w + left_pos * zoom;
-            const float margin    = 5;
-            if (toolbar_x < window_width + margin * 3) {
-                window_pos_x = 5.0f;
-                window_pos_y = 2.0f;
-                if (p_main_toolbar) {
-                    window_pos_y += p_main_toolbar->get_height();
-                }
-            }
-        }
-    }
+    float window_pos_x = 0.0f;
+    float window_pos_y = 0.0f;
+    _calc_return_toolbar_position(window_width, window_pos_x, window_pos_y);
     imgui.set_next_window_pos(window_pos_x, window_pos_y, ImGuiCond_Always, 0, 0);
 #ifdef __WINDOWS__
     imgui.set_next_window_size(window_width, window_height, ImGuiCond_Always);
@@ -12119,6 +12358,7 @@ void GLCanvas3D::_append_to_frame_callback(const FrameCallback& cb)
 void GLCanvas3D::_render_toolbar()
 {
     _render_main_toolbar();
+    _render_gizmo_toolbar();
     _render_collapse_toolbar();
 
     //BBS: GUI refactor: GLToolbar
@@ -12137,6 +12377,16 @@ const std::shared_ptr<GLToolbar>& GLCanvas3D::get_main_toolbar() const
         m_main_toolbar = std::make_shared<GLToolbar>(GLToolbar::EType::Normal, "Main");
     }
     return m_main_toolbar;
+}
+
+const std::shared_ptr<GLToolbar>& GLCanvas3D::get_gizmo_toolbar() const
+{
+    if (!m_gizmo_toolbar) {
+        // Radio rendering keeps inactive glyphs neutral while preserving the
+        // source accent color for the active Material rail destination.
+        m_gizmo_toolbar = std::make_shared<GLToolbar>(GLToolbar::EType::Radio, "Gizmos");
+    }
+    return m_gizmo_toolbar;
 }
 
 void GLCanvas3D::_render_thumbnail_internal(ThumbnailData& thumbnail_data, const ThumbnailsParams& thumbnail_params,
@@ -13956,10 +14206,13 @@ bool GLCanvas3D::_deactivate_collapse_toolbar_items()
 void GLCanvas3D::highlight_toolbar_item(const std::string& item_name)
 {
     const auto& p_main_toolbar = get_main_toolbar();
-    if (!p_main_toolbar) {
-        return;
+    std::shared_ptr<GLToolbarItem> item;
+    if (p_main_toolbar) {
+        item = p_main_toolbar->get_item(item_name);
     }
-    std::shared_ptr<GLToolbarItem> item = p_main_toolbar->get_item(item_name);
+    if (!item && m_gizmo_toolbar) {
+        item = m_gizmo_toolbar->get_item(item_name);
+    }
     if (!item || !item->is_visible())
         return;
     m_toolbar_highlighter.init(item, this);
@@ -13970,6 +14223,20 @@ void GLCanvas3D::highlight_gizmo(const std::string& gizmo_name)
     GLGizmosManager::EType gizmo = m_gizmos.get_gizmo_from_name(gizmo_name);
     if(gizmo == GLGizmosManager::EType::Undefined)
         return;
+
+    const std::string item_name = GLGizmosManager::convert_gizmo_type_to_string(gizmo);
+    std::shared_ptr<GLToolbarItem> item;
+    if (m_gizmo_toolbar) {
+        item = m_gizmo_toolbar->get_item(item_name);
+    }
+    if (!item && m_main_toolbar) {
+        item = m_main_toolbar->get_item(item_name);
+    }
+    if (item && item->is_visible()) {
+        m_gizmo_highlighter.invalidate();
+        m_toolbar_highlighter.init(item, this);
+        return;
+    }
     m_gizmo_highlighter.init(&m_gizmos, gizmo, this);
 }
 
@@ -14088,7 +14355,7 @@ void GLCanvas3D::GizmoHighlighter::init(GLGizmosManager* manager, GLGizmosManage
 {
     if (m_timer.IsRunning())
         invalidate();
-    if (!gizmo || !canvas)
+    if (!manager || gizmo == GLGizmosManager::EType::Undefined || !canvas)
         return;
 
     m_timer.Start(300, false);

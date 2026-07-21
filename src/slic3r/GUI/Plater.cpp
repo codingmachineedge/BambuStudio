@@ -1,6 +1,7 @@
 #include "Plater.hpp"
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cctype>
 #include <cmath>
@@ -11,12 +12,15 @@
 #include <string>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <regex>
 #include <optional>
 #include <future>
+#include <filesystem>
 #include <functional>
 #include <fstream>
 #include <chrono>
+#include <deque>
 #include <iomanip>
 #include <boost/algorithm/string.hpp>
 #include <boost/optional.hpp>
@@ -74,6 +78,7 @@
 #include "libslic3r/Polygon.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/ProjectHistoryManager.hpp"
 #include "libslic3r/FilamentMixer.hpp"
 #include "libslic3r/LocalesUtils.hpp"
 #include "libslic3r/SLAPrint.hpp"
@@ -196,6 +201,7 @@
 
 using boost::optional;
 namespace fs = boost::filesystem;
+namespace stdfs = std::filesystem;
 using Slic3r::_3DScene;
 using Slic3r::Preset;
 using Slic3r::GUI::format_wxstr;
@@ -270,8 +276,9 @@ wxDEFINE_EVENT(EVT_HELIO_INPUT_DLG, SimpleEvent);
 // end helio
 
 #define PRINTER_THUMBNAIL_SIZE (wxSize(FromDIP(48), FromDIP(48)))
-#define PRINTER_PANEL_SIZE (wxSize(FromDIP(96), FromDIP(68)))
-#define BTN_SYNC_SIZE (wxSize(FromDIP(96), FromDIP(98)))
+#define PRINTER_PANEL_SIZE (wxSize(-1, FromDIP(68)))
+#define BED_PANEL_SIZE (wxSize(-1, FromDIP(84)))
+#define BTN_SYNC_SIZE (wxSize(-1, FromDIP(MD3::Metrics::comfortable.row_height)))
 
 static string get_diameter_string(float diameter)
 {
@@ -652,6 +659,7 @@ struct Sidebar::priv
 
     // Printer
     wxSizer *             vsizer_printer      = nullptr;
+    wxSizer *             sizer_dual_extruder = nullptr;
     // Printer - preset
     StaticBox * panel_printer_preset = nullptr;
     wxStaticBitmap *      image_printer       = nullptr;
@@ -662,6 +670,7 @@ struct Sidebar::priv
     StaticBox *     panel_printer_bed = nullptr;
     wxStaticBitmap *image_printer_bed = nullptr;
     ComboBox *      combo_printer_bed = nullptr;
+    wxStaticText *  text_printer_bed  = nullptr;
 
     ImageDPIFrame *big_bed_image_popup = nullptr;
     // Printer - sync
@@ -683,6 +692,7 @@ struct Sidebar::priv
     std::vector<PlaterPresetComboBox*> combos_filament;
     int editing_filament = -1;
     wxBoxSizer *sizer_filaments = nullptr;
+    Button *    btn_add_filament_row = nullptr;
     bool fila_switch_warning_shown = false;
 
     //BBS Sidebar widgets
@@ -778,49 +788,30 @@ struct Sidebar::priv
 void Sidebar::priv::layout_printer(bool isBBL, bool isDual)
 {
     isDual = isDual && isBBL;  // It indicates a multi-extruder layout.
-    // Printer - preset
-    if (auto sizer = static_cast<wxBoxSizer *>(panel_printer_preset->GetSizer());
-            sizer == nullptr || isBBL != (sizer->GetOrientation() == wxVERTICAL)) {
-        wxBoxSizer *hsizer_printer_btn = new wxBoxSizer(wxHORIZONTAL);
-        hsizer_printer_btn->AddStretchSpacer(1);
-        hsizer_printer_btn->Add(btn_edit_printer, 0);
-        hsizer_printer_btn->Add(btn_connect_printer, 0, wxALIGN_CENTER | wxLEFT, FromDIP(4));
-        combo_printer->SetWindowStyle(combo_printer->GetWindowStyle() & ~wxALIGN_MASK | (isBBL ? wxALIGN_CENTER_HORIZONTAL : wxALIGN_RIGHT));
-        if (isBBL) {
-            wxBoxSizer *vsizer = new wxBoxSizer(wxVERTICAL);
-            wxBoxSizer *hsizer = new wxBoxSizer(wxHORIZONTAL);
-            hsizer->AddStretchSpacer(1);
-            hsizer->Add(image_printer, 0, wxEXPAND | wxTOP, FromDIP(8));
-            hsizer->Add(hsizer_printer_btn, 1, wxEXPAND, 0);
-            hsizer->AddSpacer(FromDIP(6));
-            vsizer->AddSpacer(FromDIP(4));
-            vsizer->Add(hsizer, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(8));
-            vsizer->Add(combo_printer, 0, wxEXPAND | wxALL, FromDIP(4));
-            panel_printer_preset->SetSizer(vsizer);
-        } else {
-            wxBoxSizer *hsizer = new wxBoxSizer(wxHORIZONTAL);
-            hsizer->Add(image_printer, 0, wxLEFT | wxALIGN_CENTER, FromDIP(4));
-            hsizer->Add(combo_printer, 1, wxALIGN_CENTRE | wxLEFT | wxRIGHT, FromDIP(6));
-            hsizer->Add(hsizer_printer_btn, 0, wxALIGN_TOP | wxTOP | wxRIGHT, FromDIP(4));
-            hsizer->AddSpacer(FromDIP(10));
-            panel_printer_preset->SetSizer(hsizer);
-        }
+    // Keep the selected printer as a single full-width identity row. The old
+    // BBL layout stacked the thumbnail above the selector, which made this
+    // card compete horizontally with Bed type and Sync as three mini-cards.
+    if (panel_printer_preset->GetSizer() == nullptr) {
+        auto *identity_row = new wxBoxSizer(wxHORIZONTAL);
+        identity_row->Add(image_printer, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(12));
+        identity_row->Add(combo_printer, 1, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, FromDIP(8));
+        identity_row->Add(btn_edit_printer, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(4));
+        identity_row->Add(btn_connect_printer, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+        combo_printer->SetWindowStyle(combo_printer->GetWindowStyle() & ~wxALIGN_MASK | wxALIGN_LEFT);
+        panel_printer_preset->SetSizer(identity_row);
     }
 
     if (vsizer_printer->GetItemCount() == 0) {
-        wxBoxSizer *hsizer_printer = new wxBoxSizer(wxHORIZONTAL);
-        hsizer_printer->Add(panel_printer_preset, 1, wxEXPAND, 0);
-        hsizer_printer->Add(panel_printer_bed, 0, wxLEFT | wxEXPAND, FromDIP(4));
-        hsizer_printer->Add(btn_sync_printer, 0, wxLEFT | wxEXPAND, FromDIP(4));
-        vsizer_printer->Add(hsizer_printer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(4));
-        vsizer_printer->AddSpacer(FromDIP(4));
-        // Printer - extruder
+        vsizer_printer->Add(panel_printer_preset, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
+        vsizer_printer->Add(panel_printer_bed, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
+        vsizer_printer->Add(btn_sync_printer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
 
-        // double
-        auto hsizer_extruder = new wxBoxSizer(wxHORIZONTAL);
+        // Printer - extruder
+        auto *hsizer_extruder = new wxBoxSizer(wxHORIZONTAL);
         hsizer_extruder->Add(left_extruder->sizer, 1, wxEXPAND, 0);
-        hsizer_extruder->AddSpacer(FromDIP(4));
+        hsizer_extruder->AddSpacer(FromDIP(8));
         hsizer_extruder->Add(right_extruder->sizer, 1, wxEXPAND, 0);
+        sizer_dual_extruder = hsizer_extruder;
 
         if (!extruder_separator_icon) {
             auto bitmap = ScalableBitmap(m_panel_printer_content, "fila_switch", 10);
@@ -833,19 +824,21 @@ void Sidebar::priv::layout_printer(bool isBBL, bool isDual)
             });
         }
 
-        // single
-        vsizer_printer->Add(hsizer_extruder, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(4));
-        vsizer_printer->Add(single_extruder->sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(4));
-
-        vsizer_printer->AddSpacer(FromDIP(4));
+        vsizer_printer->Add(hsizer_extruder, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
+        vsizer_printer->Add(single_extruder->sizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
+        vsizer_printer->AddSpacer(FromDIP(8));
     }
 
     btn_connect_printer->Show(!isBBL);
     btn_sync_printer->Show(isBBL);
     panel_printer_bed->Show(isBBL);
-    vsizer_printer->GetItem(2)->GetSizer()->GetItem(1)->Show(isDual);
-    vsizer_printer->GetItem(2)->Show(isBBL && isDual);
-    vsizer_printer->GetItem(3)->Show(isBBL && !isDual);
+    vsizer_printer->Show(panel_printer_bed, isBBL, true);
+    vsizer_printer->Show(btn_sync_printer, isBBL, true);
+    if (sizer_dual_extruder != nullptr)
+        vsizer_printer->Show(sizer_dual_extruder, isBBL && isDual, true);
+    vsizer_printer->Show(single_extruder->sizer, isBBL && !isDual, true);
+    panel_printer_preset->Layout();
+    vsizer_printer->Layout();
 }
 
 void Sidebar::priv::flush_printer_sync(bool restart)
@@ -854,7 +847,9 @@ void Sidebar::priv::flush_printer_sync(bool restart)
         *counter_sync_printer = 6;
         timer_sync_printer->Start(500);
     }
-    btn_sync_printer->SetBackgroundColorNormal((*counter_sync_printer & 1) ? "#F8F8F8" :"#00AE42");
+    btn_sync_printer->SetBackgroundColorNormal(
+        (*counter_sync_printer & 1) ? StateColor::semantic(MD3::Role::SurfaceContainerHigh)
+                                    : StateColor::semantic(MD3::Role::Primary));
     if (--*counter_sync_printer <= 0)
         timer_sync_printer->Stop();
 }
@@ -2106,7 +2101,7 @@ bool Sidebar::priv::sync_extruder_list(bool &only_external_material, bool is_man
 
 void Sidebar::priv::update_sync_status(const MachineObject *obj)
 {
-    StateColor not_synced_colour(std::pair<wxColour, int>(wxColour("#00AE42"), StateColor::Normal));
+    StateColor not_synced_colour(std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Normal));
     auto clear_all_sync_status = [this, &not_synced_colour]() {
         panel_printer_preset->ShowBadge(false);
         panel_printer_bed->ShowBadge(false);
@@ -2515,9 +2510,10 @@ Sidebar::Sidebar(Plater *parent)
         /*************************** 2. add printer content ************************/
         p->m_panel_printer_content = new wxPanel(p->scrolled, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL);
         p->m_panel_printer_content->SetBackgroundColour(surface_lowest);
-        StateColor panel_bd_col(std::pair<wxColour, int>(ThemeColor::BrandGreen, StateColor::Pressed),
-                                std::pair<wxColour, int>(ThemeColor::BrandGreen, StateColor::Hovered),
-                                std::pair<wxColour, int>(ThemeColor::Grey400, StateColor::Normal));
+        StateColor panel_bd_col(
+            std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Pressed),
+            std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Hovered),
+            std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OutlineVariant), StateColor::Normal));
 
         p->panel_printer_preset = new StaticBox(p->m_panel_printer_content);
         p->panel_printer_preset->SetCornerRadius(FromDIP(MD3::Metrics::comfortable.radius));
@@ -2571,7 +2567,7 @@ Sidebar::Sidebar(Plater *parent)
         p->panel_printer_bed->SetCornerRadius(FromDIP(MD3::Metrics::comfortable.radius));
         p->panel_printer_bed->SetBackgroundColor(surface_high);
         p->panel_printer_bed->SetBorderColor(panel_bd_col);
-        p->panel_printer_bed->SetMinSize(PRINTER_PANEL_SIZE);
+        p->panel_printer_bed->SetMinSize(BED_PANEL_SIZE);
         p->panel_printer_bed->Bind(wxEVT_LEFT_DOWN, [this](auto &evt) {
             p->combo_printer_bed->wxEvtHandler::ProcessEvent(evt);
         });
@@ -2597,13 +2593,12 @@ Sidebar::Sidebar(Plater *parent)
             p->combo_printer_bed->wxEvtHandler::ProcessEvent(evt);
         });
 
-        p->combo_printer_bed = new ComboBox(p->panel_printer_bed, wxID_ANY, wxString(""), wxDefaultPosition, wxDefaultSize, 0, nullptr, wxCB_READONLY | wxALIGN_CENTER_HORIZONTAL);
-        p->combo_printer_bed->SetBorderWidth(0);
+        p->combo_printer_bed = new ComboBox(p->panel_printer_bed, wxID_ANY, wxString(""), wxDefaultPosition, wxDefaultSize, 0, nullptr, wxCB_READONLY | wxALIGN_LEFT);
+        p->combo_printer_bed->SetBorderWidth(1);
         p->combo_printer_bed->GetDropDown().SetUseContentWidth(true);
         reset_bed_type_combox_choices(true);
 
         p->combo_printer_bed->Bind(wxEVT_COMBOBOX, [this](auto &e) {
-            bool isDual          = static_cast<wxBoxSizer *>(p->panel_printer_preset->GetSizer())->GetOrientation() == wxVERTICAL;
             bool exist;
             auto image_path = get_cur_select_bed_image(exist);
             if (exist) {
@@ -2622,14 +2617,16 @@ Sidebar::Sidebar(Plater *parent)
         p->image_printer_bed->Bind(wxEVT_ENTER_WINDOW, &Sidebar::on_enter_image_printer_bed, this);
 
         wxBoxSizer *bed_type_vsizer = new wxBoxSizer(wxVERTICAL);
-        bed_type_vsizer->AddStretchSpacer(1);
-        wxBoxSizer *bed_type_hsizer = new wxBoxSizer(wxHORIZONTAL);
-            bed_type_hsizer->AddStretchSpacer(1);
-            bed_type_hsizer->Add(p->image_printer_bed, 1, wxEXPAND | wxTOP, FromDIP(8));
-            bed_type_hsizer->Add(wiki_bed, 1, wxTOP, FromDIP(2));
-        bed_type_vsizer->Add(bed_type_hsizer, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(8));
-        bed_type_vsizer->Add(p->combo_printer_bed, 0, wxEXPAND | wxALL, FromDIP(2));
-        bed_type_vsizer->AddStretchSpacer(1);
+        p->text_printer_bed = new wxStaticText(p->panel_printer_bed, wxID_ANY, _L("Bed type"));
+        p->text_printer_bed->SetFont(::Label::Body_11);
+        p->text_printer_bed->SetForegroundColour(inactive_text);
+        bed_type_vsizer->Add(p->text_printer_bed, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(12));
+
+        auto *bed_type_hsizer = new wxBoxSizer(wxHORIZONTAL);
+        bed_type_hsizer->Add(p->image_printer_bed, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(10));
+        bed_type_hsizer->Add(p->combo_printer_bed, 1, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(8));
+        bed_type_hsizer->Add(wiki_bed, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, FromDIP(8));
+        bed_type_vsizer->Add(bed_type_hsizer, 0, wxEXPAND | wxBOTTOM, FromDIP(8));
 
         p->panel_printer_bed->SetSizer(bed_type_vsizer);
 
@@ -2661,20 +2658,24 @@ Sidebar::Sidebar(Plater *parent)
         btn_sync->SetToolTip(_L("Synchronize nozzle information and the number of AMS"));
         btn_sync->SetCornerRadius(FromDIP(MD3::Metrics::comfortable.row_height / 2));
         StateColor btn_sync_bg_col(
-                std::pair<wxColour, int>(ThemeColor::Grey300, StateColor::Pressed),
-                std::pair<wxColour, int>(ThemeColor::Grey200, StateColor::Hovered),
-                std::pair<wxColour, int>(ThemeColor::White, StateColor::Normal));
+                std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SecondaryContainer), StateColor::Pressed),
+                std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SurfaceContainerHigh), StateColor::Hovered),
+                std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SurfaceContainerLowest), StateColor::Normal));
         StateColor btn_sync_bd_col(
-                std::pair<wxColour, int>(ThemeColor::BrandGreen, StateColor::Pressed),
-                std::pair<wxColour, int>(ThemeColor::BrandGreen, StateColor::Hovered),
-                std::pair<wxColour, int>(ThemeColor::Grey400, StateColor::Normal));
+                std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Pressed),
+                std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Hovered),
+                std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Outline), StateColor::Normal));
+        StateColor btn_sync_fg_col(
+                std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnSecondaryContainer), StateColor::Pressed),
+                std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Hovered),
+                std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Normal));
         btn_sync->SetBackgroundColor(btn_sync_bg_col);
         btn_sync->SetBorderColor(btn_sync_bd_col);
+        btn_sync->SetTextColor(btn_sync_fg_col);
         btn_sync->SetCanFocus(false);
-        btn_sync->SetPaddingSize({FromDIP(6), FromDIP(12)});
+        btn_sync->SetPaddingSize({FromDIP(12), FromDIP(8)});
         btn_sync->SetMinSize(BTN_SYNC_SIZE);
-        btn_sync->SetMaxSize(BTN_SYNC_SIZE);
-        btn_sync->SetVertical();
+        btn_sync->SetMaxSize({-1, FromDIP(MD3::Metrics::comfortable.row_height)});
         btn_sync->Bind(wxEVT_UPDATE_UI, &Sidebar::update_sync_ams_btn_enable, this);
         btn_sync->Bind(wxEVT_BUTTON, [this](wxCommandEvent &e) {
             deal_btn_sync();
@@ -2788,14 +2789,20 @@ Sidebar::Sidebar(Plater *parent)
     p->m_purge_mode_btn->SetPaddingSize(wxSize(FromDIP(6), FromDIP(3)));
     p->m_purge_mode_btn->SetCornerRadius(FromDIP(8));
 
-    StateColor purge_bg_col(std::pair<wxColour, int>(wxColour(219, 253, 231), StateColor::Pressed), std::pair<wxColour, int>(wxColour(238, 238, 238), StateColor::Hovered),
-                            std::pair<wxColour, int>(wxColour(238, 238, 238), StateColor::Normal));
+    StateColor purge_bg_col(
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SecondaryContainer), StateColor::Pressed),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SurfaceContainerHigh), StateColor::Hovered),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SurfaceContainerLowest), StateColor::Normal));
 
-    StateColor purge_fg_col(std::pair<wxColour, int>(wxColour(107, 107, 106), StateColor::Pressed), std::pair<wxColour, int>(wxColour(107, 107, 106), StateColor::Hovered),
-                            std::pair<wxColour, int>(wxColour(107, 107, 106), StateColor::Normal));
+    StateColor purge_fg_col(
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnSecondaryContainer), StateColor::Pressed),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Hovered),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnSurfaceVariant), StateColor::Normal));
 
-    StateColor purge_bd_col(std::pair<wxColour, int>(wxColour(0, 174, 66), StateColor::Pressed), std::pair<wxColour, int>(wxColour(0, 174, 66), StateColor::Hovered),
-                            std::pair<wxColour, int>(wxColour(172, 172, 172), StateColor::Normal));
+    StateColor purge_bd_col(
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Pressed),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Hovered),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Outline), StateColor::Normal));
 
     p->m_purge_mode_btn->SetBackgroundColor(purge_bg_col);
     p->m_purge_mode_btn->SetBorderColor(purge_bd_col);
@@ -2827,17 +2834,20 @@ Sidebar::Sidebar(Plater *parent)
     p->m_flushing_volume_btn->SetPaddingSize(wxSize(FromDIP(6),FromDIP(3)));
     p->m_flushing_volume_btn->SetCornerRadius(FromDIP(8));
 
-    StateColor flush_bg_col(std::pair<wxColour, int>(wxColour(219, 253, 231), StateColor::Pressed),
-                            std::pair<wxColour, int>(wxColour(238, 238, 238), StateColor::Hovered),
-                            std::pair<wxColour, int>(wxColour(238, 238, 238), StateColor::Normal));
+    StateColor flush_bg_col(
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SecondaryContainer), StateColor::Pressed),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SurfaceContainerHigh), StateColor::Hovered),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SurfaceContainerLowest), StateColor::Normal));
 
-    StateColor flush_fg_col(std::pair<wxColour, int>(wxColour(107, 107, 106), StateColor::Pressed),
-                            std::pair<wxColour, int>(wxColour(107, 107, 106), StateColor::Hovered),
-                            std::pair<wxColour, int>(wxColour(107, 107, 106), StateColor::Normal));
+    StateColor flush_fg_col(
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnSecondaryContainer), StateColor::Pressed),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Hovered),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnSurfaceVariant), StateColor::Normal));
 
-    StateColor flush_bd_col(std::pair<wxColour, int>(wxColour(0, 174, 66), StateColor::Pressed),
-                            std::pair<wxColour, int>(wxColour(0, 174, 66), StateColor::Hovered),
-                            std::pair<wxColour, int>(wxColour(172, 172, 172), StateColor::Normal));
+    StateColor flush_bd_col(
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Pressed),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Hovered),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Outline), StateColor::Normal));
 
     p->m_flushing_volume_btn->SetBackgroundColor(flush_bg_col);
     p->m_flushing_volume_btn->SetBorderColor(flush_bd_col);
@@ -2892,6 +2902,7 @@ Sidebar::Sidebar(Plater *parent)
         });
         p->m_bpButton_add_filament = add_btn;
         subtitle_sizer->Add(add_btn, 0, wxALIGN_CENTER_VERTICAL);
+        add_btn->Hide(); // The full-width outlined action below the rows is the primary add affordance.
 
         // - button
         ScalableButton* del_btn = new ScalableButton(p->m_panel_filament_subtitle, wxID_ANY, "delete_filament");
@@ -2944,10 +2955,10 @@ Sidebar::Sidebar(Plater *parent)
     p->m_panel_filament_content = new wxPanel(p->m_physical_scroll_area, wxID_ANY);
     p->m_panel_filament_content->SetBackgroundColour(surface_lowest);
 
-    // BBS: filament double columns
-    p->sizer_filaments = new wxBoxSizer(wxHORIZONTAL);
-    p->sizer_filaments->Add(new wxBoxSizer(wxVERTICAL), 1, wxEXPAND);
-    p->sizer_filaments->Add(new wxBoxSizer(wxVERTICAL), 1, wxEXPAND);
+    // Material sidebar: one readable full-width row per filament. The former
+    // two-column grid made both preset names and status badges truncate in the
+    // 344/312 DIP sidebar widths.
+    p->sizer_filaments = new wxBoxSizer(wxVERTICAL);
 
     p->combos_filament.push_back(nullptr);
 
@@ -2969,6 +2980,27 @@ Sidebar::Sidebar(Plater *parent)
         e.Skip();
     });
     wrapper_sizer->Add(p->m_physical_scroll_area, 0, wxEXPAND, 0);
+
+    p->btn_add_filament_row = new Button(p->m_filament_area_wrapper, _L("Add filament"), "add_filament", 0, 16);
+    p->btn_add_filament_row->SetFont(::Label::Body_12);
+    p->btn_add_filament_row->SetCornerRadius(FromDIP(MD3::Metrics::comfortable.row_height / 2));
+    p->btn_add_filament_row->SetPaddingSize({FromDIP(12), FromDIP(8)});
+    p->btn_add_filament_row->SetMinSize({-1, FromDIP(MD3::Metrics::comfortable.row_height)});
+    p->btn_add_filament_row->SetMaxSize({-1, FromDIP(MD3::Metrics::comfortable.row_height)});
+    p->btn_add_filament_row->SetBackgroundColor(StateColor(
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SecondaryContainer), StateColor::Pressed),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SurfaceContainerHigh), StateColor::Hovered),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SurfaceContainerLowest), StateColor::Normal)));
+    p->btn_add_filament_row->SetBorderColor(StateColor(
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Pressed),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Hovered),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Outline), StateColor::Normal)));
+    p->btn_add_filament_row->SetTextColor(StateColor(
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnSecondaryContainer), StateColor::Pressed),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Hovered),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Normal)));
+    p->btn_add_filament_row->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { add_filament(); });
+    wrapper_sizer->Add(p->btn_add_filament_row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, FromDIP(8));
 
     // ---- Mixed Filament section (inside wrapper, outside scroll areas) ----
     // 1) "+ 添加混色" button (shown when no mixed filaments exist)
@@ -3252,12 +3284,11 @@ void Sidebar::init_filament_combo(PlaterPresetComboBox **combo, const int filame
 
     auto combo_and_btn_sizer = new wxBoxSizer(wxHORIZONTAL);
 
-    // BBS:  filament double columns
-    int em = wxGetApp().em_unit();
-    combo_and_btn_sizer->Add(FromDIP(10), 0, 0, 0, 0 );
+    combo_and_btn_sizer->Add(FromDIP(12), 0, 0, 0, 0 );
     (*combo)->clr_picker->SetLabel(wxString::Format("%d", filament_idx + 1));
-    combo_and_btn_sizer->Add((*combo)->clr_picker, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(4));
-    combo_and_btn_sizer->Add(*combo, 1, wxALL | wxEXPAND, FromDIP(2))->SetMinSize({-1, FromDIP(30)});
+    combo_and_btn_sizer->Add((*combo)->clr_picker, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+    combo_and_btn_sizer->Add(*combo, 1, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM, FromDIP(4))
+        ->SetMinSize({-1, FromDIP(MD3::Metrics::comfortable.row_height)});
 
     /* BBS hide del_btn
     ScalableButton* del_btn = new ScalableButton(p->m_panel_filament_content, wxID_ANY, "delete_filament");
@@ -3287,19 +3318,11 @@ void Sidebar::init_filament_combo(PlaterPresetComboBox **combo, const int filame
     });
     combobox->edit_btn = edit_btn;
 
-    combo_and_btn_sizer->Add(edit_btn, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(4));
+    combo_and_btn_sizer->Add(edit_btn, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(8));
 
-    combo_and_btn_sizer->Add(FromDIP(16), 0, 0, 0, 0);
+    combo_and_btn_sizer->Add(FromDIP(12), 0, 0, 0, 0);
 
-    // BBS:  filament double columns
-    auto side = filament_idx % 2;
-    auto /***/sizer_filaments = this->p->sizer_filaments->GetItem(side)->GetSizer();
-    if (side == 1 && filament_idx > 1) sizer_filaments->Remove(filament_idx / 2);
-    sizer_filaments->Add(combo_and_btn_sizer, 1, wxEXPAND);
-    if (side == 0 && filament_idx > 0) {
-        sizer_filaments = this->p->sizer_filaments->GetItem(1)->GetSizer();
-        sizer_filaments->AddStretchSpacer(1);
-    }
+    p->sizer_filaments->Add(combo_and_btn_sizer, 0, wxEXPAND);
 }
 
 void Sidebar::remove_unused_filament_combos(const size_t current_extruder_count)
@@ -3308,23 +3331,9 @@ void Sidebar::remove_unused_filament_combos(const size_t current_extruder_count)
         return;
     while (p->combos_filament.size() > current_extruder_count) {
         const int last = p->combos_filament.size() - 1;
-        auto sizer_filaments = this->p->sizer_filaments->GetItem(last % 2)->GetSizer();
-        sizer_filaments->Remove(last / 2);
+        p->sizer_filaments->Remove(last);
         (*p->combos_filament[last]).Destroy();
         p->combos_filament.pop_back();
-    }
-    // BBS:  filament double columns
-    auto sizer_filaments0 = this->p->sizer_filaments->GetItem((size_t)0)->GetSizer();
-    auto sizer_filaments1 = this->p->sizer_filaments->GetItem(1)->GetSizer();
-    if (current_extruder_count < 2) {
-        sizer_filaments1->Clear();
-    } else {
-        size_t c0 = sizer_filaments0->GetChildren().GetCount();
-        size_t c1 = sizer_filaments1->GetChildren().GetCount();
-        if (c0 < c1)
-            sizer_filaments1->Remove(c1 - 1);
-        else if (c0 > c1)
-            sizer_filaments1->AddStretchSpacer(1);
     }
 }
 
@@ -3807,7 +3816,6 @@ void Sidebar::msw_rescale()
     p->m_printer_setting->msw_rescale();
     p->btn_edit_printer->msw_rescale();
     p->image_printer->SetSize(PRINTER_THUMBNAIL_SIZE);
-    bool isDual     = static_cast<wxBoxSizer *>(p->panel_printer_preset->GetSizer())->GetOrientation() == wxVERTICAL;
     bool exist;
     auto image_path = get_cur_select_bed_image(exist);
     if (exist) { update_bed_thumbnail(image_path); }
@@ -3818,6 +3826,11 @@ void Sidebar::msw_rescale()
     p->m_bpButton_del_filament->msw_rescale();
     p->m_bpButton_ams_filament->msw_rescale();
     p->m_bpButton_set_filament->msw_rescale();
+    p->btn_add_filament_row->SetCornerRadius(FromDIP(MD3::Metrics::compact.row_height / 2));
+    p->btn_add_filament_row->SetPaddingSize({FromDIP(10), FromDIP(6)});
+    p->btn_add_filament_row->SetMinSize({-1, FromDIP(MD3::Metrics::compact.row_height)});
+    p->btn_add_filament_row->SetMaxSize({-1, FromDIP(MD3::Metrics::compact.row_height)});
+    p->btn_add_filament_row->Rescale();
     p->m_flushing_volume_btn->Rescale();
     p->m_purge_mode_btn->Rescale();
     //BBS
@@ -3829,7 +3842,7 @@ void Sidebar::msw_rescale()
 
     p->btn_sync_printer->SetPaddingSize({FromDIP(6), FromDIP(12)});
     p->btn_sync_printer->SetMinSize(BTN_SYNC_SIZE);
-    p->panel_printer_bed->SetMinSize(PRINTER_PANEL_SIZE);
+    p->panel_printer_bed->SetMinSize(BED_PANEL_SIZE);
     p->btn_sync_printer->Rescale();
 #if 0
     if (p->mode_sizer)
@@ -3892,6 +3905,13 @@ void Sidebar::sys_color_changed()
     p->m_panel_printer_content->SetBackgroundColour(surface_lowest);
     p->panel_printer_preset->SetBackgroundColor(surface_high);
     p->panel_printer_bed->SetBackgroundColor(surface_high);
+    StateColor card_border(
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Pressed),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Hovered),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OutlineVariant), StateColor::Normal));
+    p->panel_printer_preset->SetBorderColor(card_border);
+    p->panel_printer_bed->SetBorderColor(card_border);
+    p->text_printer_bed->SetForegroundColour(on_variant);
     p->btn_connect_printer->SetBackgroundColour(surface_high);
     p->m_panel_filament_title->SetBackgroundColor(surface_low);
     p->m_panel_filament_title->SetBackgroundColor2(surface_low);
@@ -3901,6 +3921,25 @@ void Sidebar::sys_color_changed()
     p->m_physical_scroll_area->SetBackgroundColour(surface_lowest);
     p->m_panel_filament_content->SetBackgroundColour(surface_lowest);
     p->m_mixed_scroll_area->SetBackgroundColour(surface_lowest);
+
+    StateColor outlined_bg(
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SecondaryContainer), StateColor::Pressed),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SurfaceContainerHigh), StateColor::Hovered),
+        std::pair<wxColour, int>(surface_lowest, StateColor::Normal));
+    StateColor outlined_border(
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Pressed),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Hovered),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Outline), StateColor::Normal));
+    StateColor outlined_text(
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnSecondaryContainer), StateColor::Pressed),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Hovered),
+        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Normal));
+    for (Button *button : {p->btn_sync_printer, p->btn_add_filament_row}) {
+        button->SetBackgroundColor(outlined_bg);
+        button->SetBorderColor(outlined_border);
+        button->SetTextColor(outlined_text);
+        button->Refresh();
+    }
 
 #if 0
     for (wxWindow* win : std::vector<wxWindow*>{ this, p->sliced_info->GetStaticBox(), p->object_info->GetStaticBox(), p->btn_reslice, p->btn_export_gcode })
@@ -4080,26 +4119,10 @@ void Sidebar::on_filaments_delete(size_t filament_id)
         // delete UI item
         if (filament_id < p->combos_filament.size()) {
             const int last            = p->combos_filament.size() - 1;
-            auto      sizer_filaments = this->p->sizer_filaments->GetItem(last % 2)->GetSizer();
-            sizer_filaments->Remove(last / 2);
+            p->sizer_filaments->Remove(last);
 
-            PlaterPresetComboBox* to_delete_combox = p->combos_filament[filament_id];
             (*p->combos_filament[last]).Destroy();
             p->combos_filament.pop_back();
-
-            // BBS:  filament double columns
-            auto sizer_filaments0 = this->p->sizer_filaments->GetItem((size_t) 0)->GetSizer();
-            auto sizer_filaments1 = this->p->sizer_filaments->GetItem(1)->GetSizer();
-            if (p->combos_filament.size() < 2) {
-                sizer_filaments1->Clear();
-            } else {
-                size_t c0 = sizer_filaments0->GetChildren().GetCount();
-                size_t c1 = sizer_filaments1->GetChildren().GetCount();
-                if (c0 < c1)
-                    sizer_filaments1->Remove(c1 - 1);
-                else if (c0 > c1)
-                    sizer_filaments1->AddStretchSpacer(1);
-            }
         }
 
         auto sizer = p->m_panel_filament_title->GetSizer();
@@ -4816,13 +4839,15 @@ void Sidebar::set_flushing_volume_warning(const bool flushing_volume_modify)
         p->m_flushing_volume_btn->SetTextColor(wxColour(255, 111, 0));
     }
     else {
-        StateColor flush_fg_col(std::pair<wxColour, int>(wxColour(107, 107, 106), StateColor::Pressed),
-                                std::pair<wxColour, int>(wxColour(107, 107, 106), StateColor::Hovered),
-                                std::pair<wxColour, int>(wxColour(107, 107, 106), StateColor::Normal));
+        StateColor flush_fg_col(
+            std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnSecondaryContainer), StateColor::Pressed),
+            std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Hovered),
+            std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnSurfaceVariant), StateColor::Normal));
 
-        StateColor flush_bd_col(std::pair<wxColour, int>(wxColour(0, 174, 66), StateColor::Pressed),
-                                std::pair<wxColour, int>(wxColour(0, 174, 66), StateColor::Hovered),
-                                std::pair<wxColour, int>(wxColour(172, 172, 172), StateColor::Normal));
+        StateColor flush_bd_col(
+            std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Pressed),
+            std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Hovered),
+            std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Outline), StateColor::Normal));
         p->m_flushing_volume_btn->SetBorderColor(flush_bd_col);
         p->m_flushing_volume_btn->SetTextColor(flush_fg_col);
     }
@@ -6587,7 +6612,12 @@ public:
     bool need_update() const { return m_need_update; }
     void set_need_update(bool need_update) { m_need_update = need_update; }
 
-    void set_plater_dirty(bool is_dirty) { dirty_state.set_plater_dirty(is_dirty); }
+    void set_plater_dirty(bool is_dirty)
+    {
+        dirty_state.set_plater_dirty(is_dirty);
+        if (is_dirty && !q->is_loading_project())
+            schedule_project_history_capture("Project edit");
+    }
     bool is_project_dirty() const { return dirty_state.is_dirty(); }
     bool is_presets_dirty() const { return dirty_state.is_presets_dirty(); }
     void update_project_dirty_from_presets()
@@ -6595,6 +6625,8 @@ public:
         // BBS: backup
         Slic3r::put_other_changes();
         dirty_state.update_from_presets();
+        if (dirty_state.is_presets_dirty() && !q->is_loading_project())
+            schedule_project_history_capture("Project settings changed");
     }
     int save_project_if_dirty(const wxString& reason) {
         int res = wxID_NO;
@@ -6703,7 +6735,8 @@ public:
 
     // BBS: backup & restore
     using LoadProgressCallback = std::function<bool(int, const wxString&)>;
-    std::vector<size_t> load_files(const std::vector<fs::path>& input_files, LoadStrategy strategy, bool ask_multi = false);
+    std::vector<size_t> load_files(const std::vector<fs::path>& input_files, LoadStrategy strategy, bool ask_multi = false,
+                                   bool *successful_3mf_loaded = nullptr);
     std::vector<size_t> load_model_objects(const ModelObjectPtrs& model_objects, bool allow_negative_z = false,
                                            bool split_object = false, LoadProgressCallback progress_callback = {});
 
@@ -6754,7 +6787,7 @@ public:
     void remove(size_t obj_idx);
     bool delete_object_from_model(size_t obj_idx, bool refresh_immediately = true); //BBS
     void delete_all_objects_from_model();
-    void reset(bool apply_presets_change = false);
+    bool reset(bool apply_presets_change = false);
     void center_selection();
     void distribute_selection_y();
     void distribute_selection_x();
@@ -6829,6 +6862,18 @@ public:
     /*void take_snapshot(const wxString& snapshot_name, UndoRedo::SnapshotType snapshot_type = UndoRedo::SnapshotType::Action)
         { this->take_snapshot(std::string(snapshot_name.ToUTF8().data()), snapshot_type); }*/
     int  get_active_snapshot_index();
+
+    void schedule_project_history_capture(const std::string &reason);
+    void capture_project_history_now(const std::string &reason);
+    void capture_saved_project_history(const wxString &completed_project_path, const stdfs::path &previous_identity);
+    bool flush_project_history_pending(const std::string &fallback_reason, bool stop_active_jobs, bool wait_for_commits);
+    bool reset_project_history_session();
+    bool set_project_history_session_token(const std::string &token);
+    bool persist_project_history_session_marker();
+    bool restore_project_history_session_marker(const stdfs::path &backup_dir);
+    void shutdown_project_history();
+    Slic3r::ProjectHistoryManager *project_history_manager() { return m_project_history_manager.get(); }
+    stdfs::path project_history_identity() const;
 
     void undo();
     void redo();
@@ -7084,6 +7129,7 @@ public:
     int update_print_required_data(Slic3r::DynamicPrintConfig config, Slic3r::Model model, Slic3r::PlateDataPtrs plate_data_list, std::string file_name, std::string file_path);
 private:
     friend class Plater;
+    struct PendingProjectHistoryCommit;
     bool layers_height_allowed() const;
 
     void update_fff_scene();
@@ -7094,6 +7140,17 @@ private:
     void on_action_export_to_sdcard(SimpleEvent&);
     void on_action_export_to_sdcard_all(SimpleEvent&);
     void update_plugin_when_launch(wxCommandEvent& event);
+    void on_project_history_debounce(wxTimerEvent &event);
+    void on_project_history_poll(wxTimerEvent &event);
+    stdfs::path make_project_history_staging_path();
+    void materialize_project_history_event();
+    bool process_project_history_captures(bool force_retry);
+    bool enqueue_project_history_snapshot(const stdfs::path &previous_identity, const stdfs::path &identity,
+                                          const stdfs::path &completed_snapshot, const std::string &reason);
+    bool submit_project_history_commit(PendingProjectHistoryCommit &pending, bool force_retry);
+    void collect_project_history_commits(bool wait_for_all);
+    void update_project_history_poll_timer();
+    void notify_project_history_failure(const std::string &detail, bool retrying);
     // path to project folder stored with no extension
     boost::filesystem::path     m_project_folder;
 
@@ -7121,6 +7178,51 @@ private:
     // Such internal removes are NOT user deletes and must not be propagated to the assembly model:
     // the split/combine products keep the source part_guid, so the assembly view stays untouched.
     bool                        m_suppress_assemble_delete_propagation = false;
+    struct PendingProjectHistoryCapture
+    {
+        stdfs::path                               previous_identity;
+        stdfs::path                               identity;
+        stdfs::path                               completed_source;
+        stdfs::path                               staging_path;
+        std::string                               reason;
+        std::chrono::steady_clock::time_point     retry_after{};
+        unsigned int                              failed_attempts{0};
+        bool                                      snapshot_ready{false};
+    };
+    struct PendingProjectHistoryCommit
+    {
+        stdfs::path                               previous_identity;
+        stdfs::path                               identity;
+        stdfs::path                               staging_path;
+        ProjectHistoryCommitOptions               options;
+        std::future<ProjectHistoryCommitResult>   future;
+        std::chrono::steady_clock::time_point     retry_after{};
+        unsigned int                              submission_attempts{0};
+        bool                                      in_flight{false};
+        bool                                      retry_enabled{true};
+    };
+    std::unique_ptr<ProjectHistoryManager>      m_project_history_manager;
+    stdfs::path                                 m_project_history_identity_root;
+    stdfs::path                                 m_project_history_session_identity;
+    std::string                                 m_project_history_session_token;
+    stdfs::path                                 m_project_history_staging_dir;
+    std::deque<PendingProjectHistoryCapture>    m_project_history_pending_captures;
+    std::vector<PendingProjectHistoryCommit>    m_project_history_pending_commits;
+    std::vector<PendingProjectHistoryCommit>    m_project_history_retained_failures;
+    // A failed Save-As migration must never degrade into an ordinary commit
+    // against the pre-existing destination repository. Subsequent immutable
+    // snapshots are quarantined locally until the process exits.
+    std::set<stdfs::path>                       m_project_history_blocked_identities;
+    wxTimer                                     m_project_history_debounce_timer;
+    wxTimer                                     m_project_history_poll_timer;
+    std::string                                 m_project_history_event_reason;
+    stdfs::path                                 m_project_history_event_identity;
+    std::uint64_t                               m_project_history_staging_sequence{0};
+    bool                                        m_project_history_event_scheduled{false};
+    bool                                        m_project_history_capture_in_progress{false};
+    bool                                        m_project_history_failure_notified{false};
+    bool                                        m_project_history_restore_in_progress{false};
+    bool                                        m_project_history_shutting_down{false};
     int                         m_prevent_snapshots = 0;     /* Used for avoid of excess "snapshoting".
                                                               * Like for "delete selected" or "set numbers of copies"
                                                               * we should call tack_snapshot just ones
@@ -7177,7 +7279,32 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
     , collapse_toolbar(GLToolbar::EType::Normal, "Collapse")
     //BBS :partplatelist construction
     , partplate_list(this->q, &model)
+    , m_project_history_debounce_timer(q)
+    , m_project_history_poll_timer(q)
 {
+    try {
+        const std::string app_data_text = data_dir();
+        if (app_data_text.empty())
+            throw std::runtime_error("application data directory is empty");
+        std::error_code path_error;
+        const stdfs::path app_data_dir = stdfs::absolute(stdfs::u8path(app_data_text), path_error).lexically_normal();
+        if (path_error)
+            throw std::runtime_error("could not resolve application data directory: " + path_error.message());
+        m_project_history_manager = std::make_unique<ProjectHistoryManager>(app_data_dir);
+        const std::string instance_id = boost::uuids::to_string(boost::uuids::random_generator()());
+        m_project_history_identity_root = app_data_dir / "project_history" / "session-identities";
+        m_project_history_staging_dir   = app_data_dir / "project_history" / "staging" / instance_id;
+        if (!reset_project_history_session())
+            throw std::runtime_error("could not initialize the untitled project-history session");
+        q->Bind(wxEVT_TIMER, &priv::on_project_history_debounce, this, m_project_history_debounce_timer.GetId());
+        q->Bind(wxEVT_TIMER, &priv::on_project_history_poll, this, m_project_history_poll_timer.GetId());
+    } catch (const std::exception &ex) {
+        BOOST_LOG_TRIVIAL(error) << "Could not initialize project history: " << ex.what();
+        m_project_history_manager.reset();
+    } catch (...) {
+        BOOST_LOG_TRIVIAL(error) << "Could not initialize project history";
+        m_project_history_manager.reset();
+    }
     m_is_dark = wxGetApp().app_config->get_bool("dark_color_mode");
     m_aui_mgr.SetManagedWindow(q);
     m_aui_mgr.SetDockSizeConstraint(1, 1);
@@ -7659,6 +7786,7 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
     up_to_date(true, false);
     up_to_date(true, true);
     model.set_need_backup();
+    persist_project_history_session_marker();
 
     // BBS: restore project
     if (wxGetApp().is_editor()) {
@@ -7674,8 +7802,20 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
                 dlg.SetButtonLabel(wxID_NO, _L("Cancel"));
                 auto result = dlg.ShowModal();
                 if (result == wxID_YES) {
-                    this->q->load_project(from_path(last_backup), from_path(originfile));
-                    Slic3r::backup_soon();
+                    bool restore_succeeded = false;
+                    this->q->load_project(from_path(last_backup), from_path(originfile), &restore_succeeded);
+                    if (restore_succeeded) {
+                        // origin.txt is empty for an untitled crash backup. Its
+                        // marker contains only a validated token; the identity
+                        // path is always rebuilt below our app-data root.
+                        if (originfile.empty()) {
+                            restore_project_history_session_marker(stdfs::u8path(last));
+                            // Missing/legacy markers safely keep the fresh
+                            // reset token; valid markers rebind the old token.
+                            persist_project_history_session_marker();
+                        }
+                        Slic3r::backup_soon();
+                    }
                     return;
                 }
             }
@@ -7716,11 +7856,662 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
 
 Plater::priv::~priv()
 {
+    shutdown_project_history();
     if (config != nullptr)
         delete config;
     // Saves the database of visited (already shown) hints into hints.ini.
     notification_manager->deactivate_loaded_hints();
     main_frame->m_tabpanel->Unbind(wxEVT_NOTEBOOK_PAGE_CHANGING, &priv::on_tab_selection_changing, this);
+}
+
+stdfs::path Plater::priv::project_history_identity() const
+{
+    const wxString saved_project = get_project_filename(".3mf");
+    return saved_project.empty() ? m_project_history_session_identity : stdfs::u8path(into_u8(saved_project));
+}
+
+namespace {
+
+constexpr int          PROJECT_HISTORY_EVENT_DELAY_MS       = 1;
+constexpr int          PROJECT_HISTORY_POLL_INTERVAL_MS     = 250;
+constexpr int          PROJECT_HISTORY_MAX_RETRY_DELAY_MS   = 30000;
+constexpr unsigned int PROJECT_HISTORY_FORCED_RETRY_LIMIT   = 3;
+constexpr std::size_t  PROJECT_HISTORY_SESSION_TOKEN_LENGTH = 36;
+constexpr const char  *PROJECT_HISTORY_SESSION_MARKER       = ".bambu-project-history-token";
+
+static_assert(PROJECT_HISTORY_EVENT_DELAY_MS > 0);
+static_assert(PROJECT_HISTORY_MAX_RETRY_DELAY_MS >= PROJECT_HISTORY_POLL_INTERVAL_MS);
+
+std::chrono::milliseconds project_history_retry_delay(unsigned int failed_attempts)
+{
+    const unsigned int shift = std::min(failed_attempts, 7u);
+    return std::chrono::milliseconds(std::min(PROJECT_HISTORY_MAX_RETRY_DELAY_MS,
+                                               PROJECT_HISTORY_POLL_INTERVAL_MS * (1 << shift)));
+}
+
+bool project_history_error_is_retryable(ProjectHistoryErrorCode code)
+{
+    return code == ProjectHistoryErrorCode::IoError || code == ProjectHistoryErrorCode::RepositoryError ||
+           code == ProjectHistoryErrorCode::InternalError;
+}
+
+bool project_history_session_token_is_valid(const std::string &token)
+{
+    if (token.size() != PROJECT_HISTORY_SESSION_TOKEN_LENGTH)
+        return false;
+
+    for (std::size_t index = 0; index < token.size(); ++index) {
+        const bool hyphen_position = index == 8 || index == 13 || index == 18 || index == 23;
+        const bool hex_digit = (token[index] >= '0' && token[index] <= '9') ||
+                               (token[index] >= 'a' && token[index] <= 'f');
+        if (hyphen_position ? token[index] != '-' : !hex_digit)
+            return false;
+    }
+    return true;
+}
+
+} // namespace
+
+bool Plater::priv::set_project_history_session_token(const std::string &token)
+{
+    if (m_project_history_identity_root.empty() || !project_history_session_token_is_valid(token))
+        return false;
+
+    // The marker never supplies a path. A strict UUID token is the only input
+    // used to derive an identity below the application-owned history root.
+    const stdfs::path identity =
+        (m_project_history_identity_root / ("untitled-" + token + ".3mf")).lexically_normal();
+    if (identity.parent_path() != m_project_history_identity_root)
+        return false;
+
+    m_project_history_session_token    = token;
+    m_project_history_session_identity = identity;
+    return true;
+}
+
+bool Plater::priv::persist_project_history_session_marker()
+{
+    if (!m_project_history_manager || !project_history_session_token_is_valid(m_project_history_session_token))
+        return false;
+
+    stdfs::path temporary_path;
+    try {
+        const std::string backup_path_text = model.get_backup_path();
+        if (backup_path_text.empty())
+            return false;
+
+        const stdfs::path backup_path = stdfs::u8path(backup_path_text).lexically_normal();
+        const stdfs::path marker_path = backup_path / PROJECT_HISTORY_SESSION_MARKER;
+        const std::string temporary_suffix = boost::uuids::to_string(boost::uuids::random_generator()());
+        temporary_path = backup_path / (std::string(PROJECT_HISTORY_SESSION_MARKER) + ".tmp-" + temporary_suffix);
+
+        std::ofstream marker_stream(temporary_path, std::ios::binary | std::ios::trunc);
+        marker_stream.write(m_project_history_session_token.data(),
+                            static_cast<std::streamsize>(m_project_history_session_token.size()));
+        marker_stream.flush();
+        if (!marker_stream) {
+            marker_stream.close();
+            std::error_code cleanup_error;
+            stdfs::remove(temporary_path, cleanup_error);
+            BOOST_LOG_TRIVIAL(warning) << "Could not write the untitled project-history recovery marker";
+            return false;
+        }
+        marker_stream.close();
+        if (marker_stream.fail()) {
+            std::error_code cleanup_error;
+            stdfs::remove(temporary_path, cleanup_error);
+            BOOST_LOG_TRIVIAL(warning) << "Could not close the untitled project-history recovery marker";
+            return false;
+        }
+
+        // rename_file replaces an existing target and keeps the completed
+        // marker swap atomic on supported filesystems.
+        const std::error_code rename_error = Slic3r::rename_file(temporary_path.u8string(), marker_path.u8string());
+        if (rename_error) {
+            std::error_code cleanup_error;
+            stdfs::remove(temporary_path, cleanup_error);
+            BOOST_LOG_TRIVIAL(warning) << "Could not publish the untitled project-history recovery marker: "
+                                       << rename_error.message();
+            return false;
+        }
+        return true;
+    } catch (const std::exception &ex) {
+        if (!temporary_path.empty()) {
+            std::error_code cleanup_error;
+            stdfs::remove(temporary_path, cleanup_error);
+        }
+        BOOST_LOG_TRIVIAL(warning) << "Could not persist the untitled project-history recovery marker: " << ex.what();
+    } catch (...) {
+        if (!temporary_path.empty()) {
+            std::error_code cleanup_error;
+            stdfs::remove(temporary_path, cleanup_error);
+        }
+        BOOST_LOG_TRIVIAL(warning) << "Could not persist the untitled project-history recovery marker";
+    }
+    return false;
+}
+
+bool Plater::priv::restore_project_history_session_marker(const stdfs::path &backup_dir)
+{
+    try {
+        const stdfs::path marker_path = backup_dir.lexically_normal() / PROJECT_HISTORY_SESSION_MARKER;
+        std::error_code   size_error;
+        if (!stdfs::is_regular_file(marker_path, size_error) || size_error ||
+            stdfs::file_size(marker_path, size_error) != PROJECT_HISTORY_SESSION_TOKEN_LENGTH || size_error) {
+            BOOST_LOG_TRIVIAL(warning) << "Untitled crash backup has no valid project-history recovery marker";
+            return false;
+        }
+
+        std::string token(PROJECT_HISTORY_SESSION_TOKEN_LENGTH, '\0');
+        std::ifstream marker_stream(marker_path, std::ios::binary);
+        marker_stream.read(token.data(), static_cast<std::streamsize>(token.size()));
+        if (marker_stream.gcount() != static_cast<std::streamsize>(token.size()) ||
+            marker_stream.peek() != std::char_traits<char>::eof() || !project_history_session_token_is_valid(token)) {
+            BOOST_LOG_TRIVIAL(warning) << "Untitled crash backup project-history marker was rejected";
+            return false;
+        }
+        return set_project_history_session_token(token);
+    } catch (const std::exception &ex) {
+        BOOST_LOG_TRIVIAL(warning) << "Could not read the untitled project-history recovery marker: " << ex.what();
+    } catch (...) {
+        BOOST_LOG_TRIVIAL(warning) << "Could not read the untitled project-history recovery marker";
+    }
+    return false;
+}
+
+bool Plater::priv::reset_project_history_session()
+{
+    if (!m_project_history_manager) {
+        m_project_history_session_token.clear();
+        m_project_history_session_identity.clear();
+        return true;
+    }
+
+    // A reset replaces the live model. Stop and join UI jobs before exporting
+    // any revision that belongs to the old model, then wait for the local Git
+    // worker before rotating the synthetic identity.
+    if (!flush_project_history_pending("Autosave before closing project", true, true)) {
+        BOOST_LOG_TRIVIAL(error) << "Project replacement refused because its preceding history boundary is not durable";
+        return false;
+    }
+
+    if (m_project_history_staging_dir.empty() || m_project_history_identity_root.empty()) {
+        BOOST_LOG_TRIVIAL(error) << "Project replacement refused because project-history paths are unavailable";
+        return false;
+    }
+
+    try {
+        // Every reset is a new document, including consecutive New Project
+        // operations in one process. A fresh random token prevents their Git
+        // histories from ever sharing an identity.
+        const std::string token = boost::uuids::to_string(boost::uuids::random_generator()());
+        if (set_project_history_session_token(token))
+            return true;
+    } catch (const std::exception &ex) {
+        BOOST_LOG_TRIVIAL(error) << "Could not generate an untitled project-history identity: " << ex.what();
+    } catch (...) {
+        BOOST_LOG_TRIVIAL(error) << "Could not generate an untitled project-history identity";
+    }
+    // Keep the currently bound identity intact. The caller will leave the
+    // current model intact as well, preserving their one-to-one lifetime.
+    return false;
+}
+
+stdfs::path Plater::priv::make_project_history_staging_path()
+{
+    if (m_project_history_staging_dir.empty())
+        return {};
+
+    std::error_code ec;
+    stdfs::create_directories(m_project_history_staging_dir, ec);
+    if (ec) {
+        BOOST_LOG_TRIVIAL(error) << "Could not create project-history staging directory: " << ec.message();
+        return {};
+    }
+
+    for (unsigned int attempt = 0; attempt < 32; ++attempt) {
+        const stdfs::path candidate = m_project_history_staging_dir / ("snapshot-" + std::to_string(++m_project_history_staging_sequence) + ".3mf");
+        if (!stdfs::exists(candidate, ec) && !ec)
+            return candidate;
+        ec.clear();
+    }
+    BOOST_LOG_TRIVIAL(error) << "Could not allocate a unique project-history staging file";
+    return {};
+}
+
+void Plater::priv::notify_project_history_failure(const std::string &detail, bool retrying)
+{
+    BOOST_LOG_TRIVIAL(error) << detail;
+    if (retrying && m_project_history_failure_notified)
+        return;
+
+    const std::string message = retrying
+        ? _u8L("Project history could not save the latest edit. The app will retry automatically.")
+        : _u8L("Project history could not save the latest edit. Its recovery snapshot was kept on this device.");
+    notification_manager->push_notification(NotificationType::CustomNotification,
+                                            NotificationManager::NotificationLevel::WarningNotificationLevel,
+                                            message);
+    m_project_history_failure_notified = true;
+}
+
+void Plater::priv::materialize_project_history_event()
+{
+    if (!m_project_history_event_scheduled)
+        return;
+
+    PendingProjectHistoryCapture capture;
+    capture.identity = std::move(m_project_history_event_identity);
+    capture.reason   = m_project_history_event_reason.empty() ? "Autosave project snapshot" : "Autosave: " + m_project_history_event_reason;
+    m_project_history_pending_captures.emplace_back(std::move(capture));
+    m_project_history_event_reason.clear();
+    m_project_history_event_identity.clear();
+    m_project_history_event_scheduled = false;
+}
+
+bool Plater::priv::submit_project_history_commit(PendingProjectHistoryCommit &pending, bool force_retry)
+{
+    if (!m_project_history_manager || m_project_history_shutting_down || pending.in_flight || !pending.retry_enabled)
+        return false;
+    if (!force_retry && std::chrono::steady_clock::now() < pending.retry_after)
+        return false;
+
+    try {
+        ++pending.submission_attempts;
+        if (pending.previous_identity.empty()) {
+            pending.future = m_project_history_manager->commit_snapshot(pending.identity, pending.staging_path, pending.options);
+        } else {
+            pending.future = m_project_history_manager->migrate_then_commit_snapshot(
+                pending.previous_identity, pending.identity, pending.staging_path, pending.options);
+        }
+        pending.in_flight = true;
+        return true;
+    } catch (const std::exception &ex) {
+        pending.retry_after = std::chrono::steady_clock::now() + project_history_retry_delay(pending.submission_attempts);
+        notify_project_history_failure(std::string("Could not enqueue project-history snapshot: ") + ex.what(), true);
+    } catch (...) {
+        pending.retry_after = std::chrono::steady_clock::now() + project_history_retry_delay(pending.submission_attempts);
+        notify_project_history_failure("Could not enqueue project-history snapshot", true);
+    }
+    return false;
+}
+
+bool Plater::priv::enqueue_project_history_snapshot(const stdfs::path &previous_identity, const stdfs::path &identity,
+                                                     const stdfs::path &completed_snapshot, const std::string &requested_reason)
+{
+    if (!m_project_history_manager || m_project_history_shutting_down || identity.empty() || completed_snapshot.empty())
+        return false;
+
+    std::string reason = requested_reason;
+
+    for (char &character : reason) {
+        if (character == '\0' || character == '\r' || character == '\n')
+            character = ' ';
+    }
+    if (reason.empty())
+        reason = "Autosave project snapshot";
+    if (reason.size() > 240)
+        reason.resize(240);
+
+    const stdfs::path identity_key = identity.lexically_normal();
+    if (m_project_history_blocked_identities.find(identity_key) != m_project_history_blocked_identities.end()) {
+        try {
+            PendingProjectHistoryCommit retained;
+            retained.previous_identity = previous_identity;
+            retained.identity          = identity;
+            retained.staging_path      = completed_snapshot;
+            retained.options.message   = std::move(reason);
+            retained.retry_enabled     = false;
+            m_project_history_retained_failures.emplace_back(std::move(retained));
+        } catch (const std::exception &ex) {
+            notify_project_history_failure(std::string("Could not retain a snapshot for a blocked project-history identity: ") + ex.what(), true);
+            return false;
+        } catch (...) {
+            notify_project_history_failure("Could not retain a snapshot for a blocked project-history identity", true);
+            return false;
+        }
+        // The immutable file is intentionally retained, but it must never be
+        // submitted to the repository that caused the Save-As collision.
+        notify_project_history_failure("Project-history destination is blocked; recovery snapshot retained locally", false);
+        return true;
+    }
+
+    bool pending_slot_added = false;
+    try {
+        m_project_history_pending_commits.emplace_back();
+        pending_slot_added = true;
+        PendingProjectHistoryCommit &pending = m_project_history_pending_commits.back();
+        pending.previous_identity = previous_identity;
+        pending.identity          = identity;
+        pending.staging_path      = completed_snapshot;
+        pending.options.message   = std::move(reason);
+        // Keep strict edit order. Only the oldest staged snapshot may be in
+        // flight; otherwise retrying an older failed blob after a newer commit
+        // would make Git HEAD regress to the older project state.
+        if (m_project_history_pending_commits.size() == 1)
+            submit_project_history_commit(pending, true);
+        update_project_history_poll_timer();
+        return true;
+    } catch (const std::exception &ex) {
+        if (pending_slot_added)
+            m_project_history_pending_commits.pop_back();
+        notify_project_history_failure(std::string("Could not allocate project-history commit state: ") + ex.what(), true);
+    } catch (...) {
+        if (pending_slot_added)
+            m_project_history_pending_commits.pop_back();
+        notify_project_history_failure("Could not allocate project-history commit state", true);
+    }
+    return false;
+}
+
+bool Plater::priv::process_project_history_captures(bool force_retry)
+{
+    if (!m_project_history_manager || m_project_history_shutting_down || m_project_history_capture_in_progress)
+        return false;
+
+    bool all_submitted = true;
+    while (!m_project_history_pending_captures.empty()) {
+        PendingProjectHistoryCapture &capture = m_project_history_pending_captures.front();
+        if (!force_retry && std::chrono::steady_clock::now() < capture.retry_after)
+            break;
+        if (q->is_loading_project() || q->is_any_job_running()) {
+            capture.retry_after = std::chrono::steady_clock::now() + std::chrono::milliseconds(PROJECT_HISTORY_POLL_INTERVAL_MS);
+            all_submitted = false;
+            break;
+        }
+
+        if (!capture.snapshot_ready) {
+            if (capture.staging_path.empty())
+                capture.staging_path = make_project_history_staging_path();
+
+            bool snapshot_ready = !capture.staging_path.empty();
+            m_project_history_capture_in_progress = true;
+            if (snapshot_ready && !capture.completed_source.empty()) {
+                std::error_code copy_error;
+                stdfs::copy_file(capture.completed_source, capture.staging_path, stdfs::copy_options::none, copy_error);
+                snapshot_ready = !copy_error;
+                if (copy_error)
+                    BOOST_LOG_TRIVIAL(error) << "Could not stage the completed manual save for project history: " << copy_error.message();
+            } else if (snapshot_ready) {
+                int export_result = -1;
+                try {
+                    const SaveStrategy strategy = SaveStrategy::Silence | SaveStrategy::SplitModel | SaveStrategy::ShareMesh |
+                                                  SaveStrategy::SkipThumbnails | SaveStrategy::Deterministic;
+                    export_result = q->export_3mf(boost::filesystem::path(capture.staging_path.native()), strategy);
+                } catch (const std::exception &ex) {
+                    BOOST_LOG_TRIVIAL(error) << "Could not serialize automatic project-history snapshot: " << ex.what();
+                } catch (...) {
+                    BOOST_LOG_TRIVIAL(error) << "Could not serialize automatic project-history snapshot";
+                }
+                snapshot_ready = export_result >= 0;
+            }
+            m_project_history_capture_in_progress = false;
+
+            if (!snapshot_ready) {
+                std::error_code cleanup_error;
+                stdfs::remove(capture.staging_path, cleanup_error);
+                capture.staging_path.clear();
+                ++capture.failed_attempts;
+                capture.retry_after = std::chrono::steady_clock::now() + project_history_retry_delay(capture.failed_attempts);
+                notify_project_history_failure("Project-history .3mf staging failed; the completed revision remains pending", true);
+                all_submitted = false;
+                break;
+            }
+            capture.snapshot_ready = true;
+        }
+
+        if (!enqueue_project_history_snapshot(capture.previous_identity, capture.identity, capture.staging_path, capture.reason)) {
+            ++capture.failed_attempts;
+            capture.retry_after = std::chrono::steady_clock::now() + project_history_retry_delay(capture.failed_attempts);
+            all_submitted = false;
+            break;
+        }
+
+        // Only now does the serialized worker own an immutable input job. The
+        // UI revision must remain pending through export and submission so an
+        // allocation/queueing failure cannot silently collapse it.
+        m_project_history_pending_captures.pop_front();
+        if (!force_retry)
+            break;
+    }
+    update_project_history_poll_timer();
+    return all_submitted && m_project_history_pending_captures.empty();
+}
+
+void Plater::priv::capture_project_history_now(const std::string &reason)
+{
+    if (!m_project_history_manager || m_project_history_shutting_down)
+        return;
+
+    m_project_history_debounce_timer.Stop();
+    if (m_project_history_event_scheduled) {
+        if (!reason.empty())
+            m_project_history_event_reason = reason;
+        materialize_project_history_event();
+    } else {
+        PendingProjectHistoryCapture capture;
+        capture.identity = project_history_identity();
+        capture.reason   = reason.empty() ? "Autosave project snapshot" : "Autosave: " + reason;
+        m_project_history_pending_captures.emplace_back(std::move(capture));
+    }
+    process_project_history_captures(true);
+}
+
+void Plater::priv::capture_saved_project_history(const wxString &completed_project_path, const stdfs::path &previous_identity)
+{
+    if (!m_project_history_manager || m_project_history_shutting_down || completed_project_path.empty())
+        return;
+
+    m_project_history_debounce_timer.Stop();
+    materialize_project_history_event();
+    PendingProjectHistoryCapture capture;
+    capture.previous_identity = previous_identity;
+    capture.identity          = stdfs::u8path(into_u8(completed_project_path));
+    capture.completed_source  = capture.identity;
+    capture.reason            = "Saved project";
+    m_project_history_pending_captures.emplace_back(std::move(capture));
+    process_project_history_captures(true);
+}
+
+void Plater::priv::schedule_project_history_capture(const std::string &reason)
+{
+    if (!m_project_history_manager || m_project_history_shutting_down || m_project_history_capture_in_progress ||
+        m_project_history_restore_in_progress)
+        return;
+
+    if (m_project_history_event_scheduled || !m_project_history_pending_captures.empty()) {
+        // A new completion boundary may not replace the live state belonging
+        // to the previous boundary. Freeze that boundary into immutable
+        // staging first; timer ordering is never used to decide that two
+        // completed edits are one version.
+        m_project_history_debounce_timer.Stop();
+        const std::string previous_reason = m_project_history_event_reason.empty()
+            ? "Completed project edit"
+            : m_project_history_event_reason;
+        if (!flush_project_history_pending(previous_reason, true, false))
+            return;
+    }
+
+    // Duplicate notifications that arrive while the export above is running
+    // are suppressed by m_project_history_capture_in_progress. Once the prior
+    // boundary is durable, arm exactly one capture for this completion.
+    m_project_history_event_scheduled = true;
+    m_project_history_event_reason    = reason;
+    m_project_history_event_identity  = project_history_identity();
+    m_project_history_debounce_timer.StartOnce(PROJECT_HISTORY_EVENT_DELAY_MS);
+}
+
+void Plater::priv::on_project_history_debounce(wxTimerEvent &)
+{
+    if (m_project_history_shutting_down || !m_project_history_manager)
+        return;
+    materialize_project_history_event();
+    process_project_history_captures(false);
+}
+
+void Plater::priv::collect_project_history_commits(bool wait_for_all)
+{
+    for (auto iterator = m_project_history_pending_commits.begin(); iterator != m_project_history_pending_commits.end();) {
+        if (!iterator->in_flight &&
+            m_project_history_blocked_identities.find(iterator->identity.lexically_normal()) !=
+                m_project_history_blocked_identities.end())
+            iterator->retry_enabled = false;
+
+        bool         completed = false;
+        unsigned int forced_attempts = 0;
+        while (!completed) {
+            if (!iterator->in_flight) {
+                if (!iterator->retry_enabled || (!wait_for_all && std::chrono::steady_clock::now() < iterator->retry_after))
+                    break;
+                if (wait_for_all && forced_attempts >= PROJECT_HISTORY_FORCED_RETRY_LIMIT)
+                    break;
+                if (!submit_project_history_commit(*iterator, wait_for_all))
+                    break;
+                ++forced_attempts;
+            }
+
+            if (!wait_for_all && iterator->future.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+                break;
+
+            ProjectHistoryCommitResult result;
+            try {
+                result = iterator->future.get();
+            } catch (const std::exception &ex) {
+                result.error = {ProjectHistoryErrorCode::InternalError, std::string("Could not finish project-history commit: ") + ex.what()};
+            } catch (...) {
+                result.error = {ProjectHistoryErrorCode::InternalError, "Could not finish project-history commit"};
+            }
+            iterator->in_flight = false;
+
+            if (result.ok()) {
+                if (result.committed && result.version.has_value())
+                    BOOST_LOG_TRIVIAL(info) << "Project-history snapshot committed: " << result.version->commit_id.substr(0, 12);
+                else
+                    BOOST_LOG_TRIVIAL(debug) << "Project-history duplicate snapshot suppressed";
+                completed = true;
+                m_project_history_failure_notified = false;
+                break;
+            }
+
+            if (!iterator->previous_identity.empty() && result.error.code == ProjectHistoryErrorCode::DestinationExists) {
+                // A Save-As destination already owns another history. Remember
+                // this process-local invariant before advancing the FIFO so no
+                // already-queued or future ordinary commit can append to it.
+                m_project_history_blocked_identities.insert(iterator->identity.lexically_normal());
+            }
+            iterator->retry_enabled = project_history_error_is_retryable(result.error.code);
+            iterator->retry_after   = std::chrono::steady_clock::now() + project_history_retry_delay(iterator->submission_attempts);
+            notify_project_history_failure("Project-history commit failed: " + result.error.message, iterator->retry_enabled);
+            if (!wait_for_all || !iterator->retry_enabled)
+                break;
+        }
+
+        if (completed) {
+            std::error_code cleanup_error;
+            stdfs::remove(iterator->staging_path, cleanup_error);
+            if (cleanup_error)
+                BOOST_LOG_TRIVIAL(warning) << "Could not remove completed project-history staging file: " << cleanup_error.message();
+            iterator = m_project_history_pending_commits.erase(iterator);
+        } else if (!iterator->in_flight && !iterator->retry_enabled) {
+            // A permanent error (notably a Save-As destination collision) may
+            // not wedge every later edit. Quarantine the immutable recovery
+            // file without deleting it, then let the active FIFO advance.
+            BOOST_LOG_TRIVIAL(error) << "Project-history terminal failure quarantined; staging retained at "
+                                     << PathSanitizer::sanitize(iterator->staging_path.u8string());
+            m_project_history_retained_failures.emplace_back(std::move(*iterator));
+            iterator = m_project_history_pending_commits.erase(iterator);
+        } else {
+            // Later snapshots remain staged until this oldest one succeeds.
+            // This preserves the user's edit order even across retries.
+            break;
+        }
+    }
+    update_project_history_poll_timer();
+}
+
+void Plater::priv::on_project_history_poll(wxTimerEvent &)
+{
+    process_project_history_captures(false);
+    collect_project_history_commits(false);
+}
+
+void Plater::priv::update_project_history_poll_timer()
+{
+    const bool has_retryable_commit = !m_project_history_pending_commits.empty() &&
+        (m_project_history_pending_commits.front().in_flight || m_project_history_pending_commits.front().retry_enabled);
+    const bool needs_poll = !m_project_history_pending_captures.empty() || has_retryable_commit;
+    if (needs_poll && !m_project_history_shutting_down) {
+        if (!m_project_history_poll_timer.IsRunning())
+            m_project_history_poll_timer.Start(PROJECT_HISTORY_POLL_INTERVAL_MS);
+    } else {
+        m_project_history_poll_timer.Stop();
+    }
+}
+
+bool Plater::priv::flush_project_history_pending(const std::string &fallback_reason, bool stop_active_jobs, bool wait_for_commits)
+{
+    if (!m_project_history_manager || m_project_history_shutting_down)
+        return false;
+
+    m_project_history_debounce_timer.Stop();
+    if (m_project_history_event_scheduled && m_project_history_event_reason.empty())
+        m_project_history_event_reason = fallback_reason;
+    materialize_project_history_event();
+
+    if (stop_active_jobs && !m_project_history_pending_captures.empty() && q->is_any_job_running()) {
+        m_ui_jobs.stop_all();
+        if (q->is_any_job_running()) {
+            notify_project_history_failure("Project-history capture is still pending because an active UI job did not stop", true);
+            update_project_history_poll_timer();
+            return false;
+        }
+    }
+
+    unsigned int attempts = 0;
+    while (!m_project_history_pending_captures.empty() && attempts++ < PROJECT_HISTORY_FORCED_RETRY_LIMIT)
+        process_project_history_captures(true);
+
+    if (wait_for_commits)
+        collect_project_history_commits(true);
+    else
+        update_project_history_poll_timer();
+
+    return m_project_history_pending_captures.empty() &&
+           (!wait_for_commits || m_project_history_pending_commits.empty());
+}
+
+void Plater::priv::shutdown_project_history()
+{
+    if (m_project_history_shutting_down)
+        return;
+
+    // Stop/join active UI jobs first so a completed edit cannot be discarded
+    // merely because its original one-shot fired while a job was active.
+    const bool history_drained = flush_project_history_pending("Autosave before shutdown", true, true);
+    if (!history_drained) {
+        // Destruction cannot safely replace or re-serialize the model after
+        // this point. Preserve every staging artifact and make the failed
+        // boundary explicit instead of treating shutdown as a successful
+        // drain.
+        notify_project_history_failure("Project history did not fully drain before shutdown; recovery data was retained", false);
+    }
+
+    m_project_history_shutting_down = true;
+    m_project_history_debounce_timer.Stop();
+    m_project_history_poll_timer.Stop();
+    q->Unbind(wxEVT_TIMER, &priv::on_project_history_debounce, this, m_project_history_debounce_timer.GetId());
+    q->Unbind(wxEVT_TIMER, &priv::on_project_history_poll, this, m_project_history_poll_timer.GetId());
+    collect_project_history_commits(true);
+    m_project_history_manager.reset();
+
+    // A failed commit deliberately retains its immutable staging file. Do not
+    // erase the process directory on shutdown unless every job completed.
+    if (history_drained && !m_project_history_staging_dir.empty() && m_project_history_pending_captures.empty() &&
+        m_project_history_pending_commits.empty() && m_project_history_retained_failures.empty()) {
+        std::error_code ec;
+        stdfs::remove_all(m_project_history_staging_dir, ec);
+        if (ec)
+            BOOST_LOG_TRIVIAL(warning) << "Could not remove project-history staging directory: " << ec.message();
+    }
 }
 
 void Plater::priv::update(unsigned int flags)
@@ -8163,9 +8954,14 @@ void read_binary_stl(const std::string& filename, std::string& model_id, std::st
 }
 
 // BBS: backup & restore
-std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_files, LoadStrategy strategy, bool ask_multi)
+std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_files, LoadStrategy strategy, bool ask_multi,
+                                             bool *successful_3mf_loaded)
 {
+    if (successful_3mf_loaded != nullptr)
+        *successful_3mf_loaded = false;
+
     std::vector<size_t> empty_result;
+    bool successful_3mf_applied = false;
     bool dlg_cont = true;
     bool is_user_cancel = false;
     bool translate_old = false;
@@ -8263,6 +9059,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
         if (!dlg_cont) return empty_result;
 
         const bool type_3mf = std::regex_match(path.string(), pattern_3mf);
+        bool       completed_3mf_try = false;
         // const bool type_zip_amf = !type_3mf && std::regex_match(path.string(), pattern_zip_amf);
         const bool type_any_amf = !type_3mf && std::regex_match(path.string(), pattern_any_amf);
         const bool type_step = boost::algorithm::iends_with(path.string(), ".stp") ||
@@ -9014,6 +9811,12 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                     project_presets.clear();
                 }
             }
+            // A valid project/config-only 3MF may contain no ModelObjects.
+            // Geometry count is therefore not a load-success signal. Mark a
+            // candidate only after the complete 3MF try path finishes without
+            // cancellation; publish it after all apply steps complete below.
+            if (type_3mf && !is_user_cancel)
+                completed_3mf_try = true;
         } catch (const ConfigurationError &e) {
             std::string message = GUI::format(_L("Failed loading file \"%1%\". An invalid configuration was found."), filename.string()) + "\n\n" + e.what();
             GUI::show_error(q, message);
@@ -9419,6 +10222,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                 }
             }
         }
+        successful_3mf_applied = successful_3mf_applied || completed_3mf_try;
     }
 
     if (new_model != nullptr && new_model->objects.size() > 1) {
@@ -9572,6 +10376,10 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
     }
     q->schedule_background_process(true);
     q->mark_plate_toolbar_image_dirty();
+    // This is the only publication point. Every cancellation, exception, or
+    // early return leaves the caller's explicit success signal false.
+    if (successful_3mf_loaded != nullptr)
+        *successful_3mf_loaded = successful_3mf_applied;
     return obj_idxs;
 }
 
@@ -10411,8 +11219,12 @@ void Plater::priv::delete_all_objects_from_model()
     model.plates_custom_gcodes.clear();
 }
 
-void Plater::priv::reset(bool apply_presets_change)
+bool Plater::priv::reset(bool apply_presets_change)
 {
+    // This is the document replacement gate. Nothing below may mutate the
+    // model or filename until the outgoing history boundary is immutable.
+    if (!reset_project_history_session())
+        return false;
     Plater::TakeSnapshot snapshot(q, "Reset Project", UndoRedo::SnapshotType::ProjectSeparator);
 
     clear_warnings();
@@ -10491,6 +11303,7 @@ void Plater::priv::reset(bool apply_presets_change)
         auto layout = m_aui_mgr.SavePerspective();
         wxGetApp().app_config->set("window_layout", layout.utf8_string());
     }
+    return true;
 }
 
 void Plater::priv::center_selection()
@@ -12928,6 +13741,7 @@ void Plater::priv::on_action_add_plate(SimpleEvent&)
         // BBS set default view
         //q->get_camera().select_view("topfront");
         q->get_camera().requires_zoom_to_plate = REQUIRES_ZOOM_TO_ALL_PLATE;
+        wxPostEvent(q, SimpleEvent(EVT_GLCANVAS_PLATE_SELECT));
     }
 }
 
@@ -15464,6 +16278,7 @@ void Plater::priv::on_plate_selected(SimpleEvent&)
 {
     BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << ":received plate selected event\n" ;
     sidebar->obj_list()->on_plate_selected(partplate_list.get_curr_plate_index());
+    main_frame->update_prepare_action_bar_content();
 }
 
 void Plater::priv::on_action_request_model_id(wxCommandEvent& evt)
@@ -15509,6 +16324,7 @@ void Plater::priv::on_object_select(SimpleEvent& evt)
 void Plater::priv::on_plate_name_change(SimpleEvent &) {
     wxGetApp().obj_list()->update_selections();
     selection_changed();
+    main_frame->update_prepare_action_bar_content();
 }
 
 void Plater::priv::on_move_plate(SimpleEvent &)
@@ -17900,6 +18716,7 @@ void Plater::priv::assemble_undo_redo_to(std::vector<UndoRedo::Snapshot>::const_
         // or step switch. Prefer update_after_undo_redo() over a bare update_data() for exactly this reset.
         assemble_canvas->get_gizmos_manager().update_after_undo_redo(snapshot_copy);
         assemble_canvas->set_as_dirty();
+        schedule_project_history_capture(snapshot_copy.name.empty() ? "Assembly undo or redo" : snapshot_copy.name);
     }
 }
 
@@ -17926,6 +18743,9 @@ void Plater::priv::take_snapshot(const std::string& snapshot_name, const UndoRed
         m_undo_redo_stack_assemble.take_snapshot(snapshot_name, m_assemble_model, assemble_canvas->get_selection(), assemble_canvas->get_gizmos_manager(), this->partplate_list, assemble_snapshot_data);
         m_undo_redo_stack_assemble.release_least_recently_used();
         BOOST_LOG_TRIVIAL(info) << "Assemble Undo / Redo snapshot taken: " << snapshot_name;
+        if (snapshot_type != UndoRedo::SnapshotType::ProjectSeparator && snapshot_modifies_project(snapshot_type) &&
+            (snapshot_name.empty() || snapshot_name.back() != '!'))
+            schedule_project_history_capture(snapshot_name);
         return;
     }
     // BBS: single snapshot
@@ -17995,6 +18815,9 @@ void Plater::priv::take_snapshot(const std::string& snapshot_name, const UndoRed
     // Save the last active preset name of a particular printer technology.
     ((this->printer_technology == ptFFF) ? m_last_fff_printer_profile_name : m_last_sla_printer_profile_name) = wxGetApp().preset_bundle->printers.get_selected_preset_name();
     BOOST_LOG_TRIVIAL(info) << "Undo / Redo snapshot taken: " << snapshot_name << ", Undo / Redo stack memory: " << Slic3r::format_memsize_MB(this->undo_redo_stack().memsize()) << log_memory_info();
+    if (snapshot_type != UndoRedo::SnapshotType::ProjectSeparator && snapshot_modifies_project(snapshot_type) &&
+        (snapshot_name.empty() || snapshot_name.back() != '!'))
+        schedule_project_history_capture(snapshot_name);
 }
 
 void Plater::priv::undo()
@@ -18123,9 +18946,10 @@ void Plater::priv::undo_redo_to(std::vector<UndoRedo::Snapshot>::const_iterator 
     // Make a copy of the snapshot, undo/redo could invalidate the iterator
     const UndoRedo::Snapshot snapshot_copy = *it_snapshot;
     // Do the jump in time.
-    if (it_snapshot->timestamp < this->undo_redo_stack().active_snapshot_time() ?
+    const bool history_state_changed = it_snapshot->timestamp < this->undo_redo_stack().active_snapshot_time() ?
         this->undo_redo_stack().undo(model, get_current_canvas3D()->get_canvas_type() == GLCanvas3D::CanvasAssembleView ? assemble_view->get_canvas3d()->get_selection() : this->view3D->get_canvas3d()->get_selection(), get_current_canvas3D()->get_canvas_type() == GLCanvas3D::CanvasAssembleView ? assemble_view->get_canvas3d()->get_gizmos_manager() : this->view3D->get_canvas3d()->get_gizmos_manager(), this->partplate_list, top_snapshot_data, it_snapshot->timestamp) :
-        this->undo_redo_stack().redo(model, get_current_canvas3D()->get_canvas_type() == GLCanvas3D::CanvasAssembleView ? assemble_view->get_canvas3d()->get_gizmos_manager() : this->view3D->get_canvas3d()->get_gizmos_manager(), this->partplate_list, it_snapshot->timestamp)) {
+        this->undo_redo_stack().redo(model, get_current_canvas3D()->get_canvas_type() == GLCanvas3D::CanvasAssembleView ? assemble_view->get_canvas3d()->get_gizmos_manager() : this->view3D->get_canvas3d()->get_gizmos_manager(), this->partplate_list, it_snapshot->timestamp);
+    if (history_state_changed) {
         if (printer_technology_changed) {
             // Switch to the other printer technology. Switch to the last printer active for that particular technology.
             AppConfig *app_config = wxGetApp().app_config;
@@ -18198,6 +19022,8 @@ void Plater::priv::undo_redo_to(std::vector<UndoRedo::Snapshot>::const_iterator 
     }
 
     dirty_state.update_from_undo_redo_stack(m_undo_redo_stack_main.project_modified());
+    if (history_state_changed)
+        schedule_project_history_capture(snapshot_copy.name.empty() ? "Undo or redo" : snapshot_copy.name);
 }
 
 void Plater::priv::update_after_undo_redo(const UndoRedo::Snapshot& snapshot, bool /* temp_snapshot_was_taken */)
@@ -18586,9 +19412,6 @@ void Plater::reset_flags_when_new_or_close_project()
 
 int Plater::new_project(bool skip_confirm, bool silent, const wxString &project_name)
 {
-    model().calib_pa_pattern.reset(nullptr);
-    model().plates_custom_gcodes.clear();
-
     bool transfer_preset_changes = false;
     // BBS: save confirm
     auto check = [this,&transfer_preset_changes](bool yes_or_no) {
@@ -18611,6 +19434,14 @@ int Plater::new_project(bool skip_confirm, bool silent, const wxString &project_
     if (!skip_confirm && (result = close_with_confirm(check)) == wxID_CANCEL)
         return wxID_CANCEL;
 
+    // Do not clear any project-owned state until reset has durably frozen the
+    // outgoing revision. On failure the current document remains untouched.
+    if (!p->reset(transfer_preset_changes))
+        return wxID_CANCEL;
+
+    model().calib_pa_pattern.reset(nullptr);
+    model().plates_custom_gcodes.clear();
+
     if (auto *assemble_canvas = get_assmeble_canvas3D()) {
         assemble_canvas->new_project_clear_assembly_steps_tree_view(true);
     }
@@ -18624,7 +19455,6 @@ int Plater::new_project(bool skip_confirm, bool silent, const wxString &project_
     //get_partplate_list().reinit();
     //get_partplate_list().update_slice_context_to_current_plate(p->background_process);
     //p->preview->update_gcode_result(p->partplate_list.get_current_slice_result());
-    reset(transfer_preset_changes);
     reset_project_dirty_after_save();
     reset_project_dirty_initial_presets();
     get_partplate_list().reset_thumbnail_assembly_view_data();
@@ -18643,6 +19473,7 @@ int Plater::new_project(bool skip_confirm, bool silent, const wxString &project_
 
     Model m;
     model().load_from(m); // new id avoid same path name
+    p->persist_project_history_session_marker();
 
     //select first plate
     get_partplate_list().select_plate(0);
@@ -18745,10 +19576,12 @@ bool Plater::try_sync_preset_with_connected_printer(int& nozzle_diameter)
 
 // BBS: FIXME, missing resotre logic
 int Plater::load_project(wxString const &filename2,
-    wxString const& originfile)
+    wxString const& originfile,
+    bool *load_succeeded,
+    bool skip_close_confirmation)
 {
-    model().calib_pa_pattern.reset(nullptr);
-    model().plates_custom_gcodes.clear();
+    if (load_succeeded != nullptr)
+        *load_succeeded = false;
 
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << "filename is: " << PathSanitizer::sanitize(filename2.ToUTF8().data())
                             << "and originfile is: " << PathSanitizer::sanitize(originfile.ToUTF8().data());
@@ -18764,14 +19597,15 @@ int Plater::load_project(wxString const &filename2,
         return !filename.empty();
     };
 
-    // BSS: save project, force close
-    int wx_dlg_id = close_with_confirm(check);
+    // History restore already has an explicit confirmation and needs a
+    // non-interactive rollback path if loading the selected snapshot fails.
+    const int wx_dlg_id = skip_close_confirmation ? wxID_YES : close_with_confirm(check);
     if (wx_dlg_id == wxID_CANCEL) {
         return wx_dlg_id;
     }
 
     //BBS: add only gcode mode
-    bool previous_gcode = m_only_gcode;
+    const bool previous_gcode = m_only_gcode;
 
     // BBS
     if (m_loading_project) {
@@ -18780,10 +19614,16 @@ int Plater::load_project(wxString const &filename2,
         BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << boost::format(": current loading other project, return directly");
         return wx_dlg_id;
     }
-    else
-        m_loading_project = true;
+    // reset() is the fail-closed history boundary. Run it before setting the
+    // loading flag (which deliberately defers history exports) and before
+    // mutating any project-owned state.
+    if (!p->reset())
+        return wxID_CANCEL;
 
-    m_only_gcode = false;
+    m_loading_project = true;
+    model().calib_pa_pattern.reset(nullptr);
+    model().plates_custom_gcodes.clear();
+    m_only_gcode    = false;
     m_exported_file = false;
     get_notification_manager()->bbl_close_plateinfo_notification();
     get_notification_manager()->bbl_close_preview_only_notification();
@@ -18804,9 +19644,8 @@ int Plater::load_project(wxString const &filename2,
     }
     bool load_restore = strategy & LoadStrategy::Restore;
 
-    // Take the Undo / Redo snapshot.
-    reset();
-
+    // Take the Undo / Redo snapshot. The caller decides where the replacement
+    // document's recovery marker belongs after load.
     Plater::TakeSnapshot snapshot(this, "Load Project", UndoRedo::SnapshotType::ProjectSeparator);
 
     std::vector<fs::path> input_paths;
@@ -18814,14 +19653,16 @@ int Plater::load_project(wxString const &filename2,
     if (strategy & LoadStrategy::Restore)
         input_paths.push_back(into_u8(originfile));
 
-    std::vector<size_t> res = load_files(input_paths, strategy);
+    bool                explicit_3mf_loaded = false;
+    std::vector<size_t> res = load_files(input_paths, strategy, false, &explicit_3mf_loaded);
+    const bool loaded_project = explicit_3mf_loaded || !res.empty();
 
     reset_project_dirty_initial_presets();
     update_project_dirty_from_presets();
     wxGetApp().preset_bundle->export_selections(*wxGetApp().app_config);
 
     // if res is empty no data has been loaded
-    if (!res.empty() && (load_restore || !(strategy & LoadStrategy::Silence))) {
+    if (loaded_project && (load_restore || !(strategy & LoadStrategy::Silence))) {
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << __LINE__ << " call set_project_filename: " << load_restore ? originfile : filename;
         p->set_project_filename(load_restore ? originfile : filename);
         if (load_restore && originfile.IsEmpty()) {
@@ -18851,6 +19692,8 @@ int Plater::load_project(wxString const &filename2,
         collapse_sidebar(false);
 
     wxGetApp().app_config->update_last_backup_dir(model().get_backup_path());
+    if (!load_restore && get_project_filename(".3mf").empty())
+        p->persist_project_history_session_marker();
     if (load_restore && !originfile.empty()) {
         wxGetApp().app_config->update_skein_dir(into_path(originfile).parent_path().string());
         wxGetApp().app_config->update_config_dir(into_path(originfile).parent_path().string());
@@ -18881,6 +19724,11 @@ int Plater::load_project(wxString const &filename2,
     statistics_burial_data(filename.utf8_string());
 
     show_wrapping_detect_dialog_if_necessary();
+    // Publish success only after every load finalizer above has completed. An
+    // exception or early return therefore leaves the caller's value false and
+    // the history-restore path will execute its rollback.
+    if (load_succeeded != nullptr)
+        *load_succeeded = loaded_project;
     return wx_dlg_id;
 }
 
@@ -18889,7 +19737,8 @@ int Plater::save_project(bool saveAs)
 {
     //if (up_to_date(false, false)) // should we always save
     //    return;
-    auto filename = get_project_filename(".3mf");
+    const stdfs::path previous_history_identity = p->project_history_identity();
+    auto              filename                  = get_project_filename(".3mf");
     if (!saveAs && filename.IsEmpty())
         saveAs = true;
     if (saveAs)
@@ -18898,6 +19747,14 @@ int Plater::save_project(bool saveAs)
         return wxID_NO;
     if (filename == "<cancel>")
         return wxID_CANCEL;
+
+    // Publish every completed edit for the old identity before Save As can
+    // change the filename or mutate assembly-save state. If staging cannot be
+    // made immutable, leave both the document and its identity untouched.
+    if (!p->flush_project_history_pending("Project edit before save", true, true)) {
+        BOOST_LOG_TRIVIAL(error) << "Project save refused because its preceding history boundary is not durable";
+        return wxID_CANCEL;
+    }
 
     if (auto *assemble_canvas = get_assmeble_canvas3D())
         assemble_canvas->prepare_assembly_steps_for_project_save();
@@ -18934,6 +19791,11 @@ int Plater::save_project(bool saveAs)
         if (agent) agent->track_event("save_project", j.dump());
     }
     catch (...) {}
+
+    // The normal save above is already a complete, successfully closed .3mf.
+    // Copy that immutable result into app-local staging on the UI thread and
+    // let ProjectHistoryManager import it on its serialized worker.
+    p->capture_saved_project_history(filename, previous_history_identity);
 
     return wxID_YES;
 }
@@ -20194,22 +21056,24 @@ void Plater::force_update_all_plate_thumbnails()
 }
 
 // BBS: backup
-std::vector<size_t> Plater::load_files(const std::vector<fs::path>& input_files, LoadStrategy strategy, bool ask_multi) {
+std::vector<size_t> Plater::load_files(const std::vector<fs::path>& input_files, LoadStrategy strategy, bool ask_multi,
+                                       bool *successful_3mf_loaded) {
     //BBS: wish to reset state when load a new file
     p->m_slice_all_only_has_gcode = false;
     //BBS: wish to reset all plates stats item selected state when load a new file
     p->preview->get_canvas3d()->reset_select_plate_toolbar_selection();
-    return p->load_files(input_files, strategy, ask_multi);
+    return p->load_files(input_files, strategy, ask_multi, successful_3mf_loaded);
 }
 
 // To be called when providing a list of files to the GUI slic3r on command line.
-std::vector<size_t> Plater::load_files(const std::vector<std::string>& input_files, LoadStrategy strategy,  bool ask_multi)
+std::vector<size_t> Plater::load_files(const std::vector<std::string>& input_files, LoadStrategy strategy, bool ask_multi,
+                                       bool *successful_3mf_loaded)
 {
     std::vector<fs::path> paths;
     paths.reserve(input_files.size());
     for (const std::string& path : input_files)
         paths.emplace_back(path);
-    return p->load_files(paths, strategy, ask_multi);
+    return p->load_files(paths, strategy, ask_multi, successful_3mf_loaded);
 }
 
 class RadioBox;
@@ -21102,13 +21966,21 @@ void Plater::deselect_all() { p->deselect_all(); }
 void Plater::exit_gizmo() { p->exit_gizmo(); }
 
 void Plater::remove(size_t obj_idx) { p->remove(obj_idx); }
-void Plater::reset(bool apply_presets_change) { p->reset(apply_presets_change); }
+bool Plater::reset(bool apply_presets_change)
+{
+    if (!p->reset(apply_presets_change))
+        return false;
+    if (!p->persist_project_history_session_marker())
+        BOOST_LOG_TRIVIAL(warning) << "Reset completed, but its untitled recovery marker could not be persisted";
+    return true;
+}
 void Plater::reset_with_confirm()
 {
     if (p->model.objects.empty() || MessageDialog(static_cast<wxWindow *>(this), _L("All objects will be removed, continue?"),
                                                   wxString(SLIC3R_APP_FULL_NAME) + " - " + _L("Delete all"), wxYES_NO | wxCANCEL | wxYES_DEFAULT | wxCENTRE)
                                             .ShowModal() == wxID_YES) {
-        reset();
+        if (!reset())
+            return;
         // BBS: jump to plater panel
         wxGetApp().mainframe->select_tab(size_t(0));
     }
@@ -22202,7 +23074,7 @@ int Plater::export_3mf(const boost::filesystem::path& output_path, SaveStrategy 
     std::vector<ThumbnailData*> picking_thumbnails;
     std::vector<PlateBBoxData*> plate_bboxes;
     // BBS: backup
-    if (!(strategy & SaveStrategy::Backup)) {
+    if (!(strategy & SaveStrategy::Backup) && !(strategy & SaveStrategy::SkipThumbnails)) {
         for (int i = 0; i < p->partplate_list.get_plate_count(); i++) {
             ThumbnailData* thumbnail_data = &p->partplate_list.get_plate(i)->thumbnail_data;
             if (p->partplate_list.get_plate(i)->thumbnail_data.is_valid() &&  using_exported_file()) {
@@ -23985,6 +24857,173 @@ void Plater::set_project_filename(const wxString& filename)
     p->set_project_filename(filename);
 }
 
+Slic3r::ProjectHistoryManager *Plater::project_history_manager()
+{
+    return p->project_history_manager();
+}
+
+stdfs::path Plater::project_history_identity() const
+{
+    return p->project_history_identity();
+}
+
+void Plater::capture_project_history_now(const std::string &reason)
+{
+    p->capture_project_history_now(reason);
+}
+
+void Plater::capture_saved_project_history(const wxString &completed_project_path, const stdfs::path &previous_identity)
+{
+    p->capture_saved_project_history(completed_project_path, previous_identity);
+}
+
+bool Plater::flush_project_history_pending(const std::string &fallback_reason, bool stop_active_jobs, bool wait_for_commits)
+{
+    return p->flush_project_history_pending(fallback_reason, stop_active_jobs, wait_for_commits);
+}
+
+bool Plater::restore_project_history_snapshot(const stdfs::path &restored_snapshot)
+{
+    std::error_code path_error;
+    if (restored_snapshot.empty() || !boost::iequals(restored_snapshot.extension().u8string(), ".3mf") ||
+        !stdfs::is_regular_file(restored_snapshot, path_error) || path_error) {
+        BOOST_LOG_TRIVIAL(error) << "Project-history restore was given an invalid completed .3mf snapshot";
+        return false;
+    }
+
+    const wxString    original_saved_project = get_project_filename(".3mf");
+    const bool        was_untitled           = original_saved_project.empty();
+    const bool        original_was_dirty     = is_project_dirty();
+    const stdfs::path original_identity       = p->project_history_identity();
+    const std::string original_session_token  = p->m_project_history_session_token;
+    const auto restore_untitled_session = [&](bool persist_marker) {
+        if (!was_untitled)
+            return;
+        if (!p->set_project_history_session_token(original_session_token)) {
+            // Preserve an already-open legacy session even if it predates the
+            // token marker format. Never derive a new path from invalid data.
+            p->m_project_history_session_identity = original_identity;
+            p->m_project_history_session_token    = original_session_token;
+        }
+        if (persist_marker)
+            p->persist_project_history_session_marker();
+    };
+
+    if (!was_untitled) {
+        const stdfs::path live_project = stdfs::u8path(into_u8(original_saved_project));
+        if (stdfs::equivalent(restored_snapshot, live_project, path_error) && !path_error) {
+            BOOST_LOG_TRIVIAL(error) << "Project-history restore refused to use the live project file as its temporary snapshot";
+            return false;
+        }
+        path_error.clear();
+    }
+
+    if (!p->flush_project_history_pending("Project edit before restore", true, true)) {
+        p->notify_project_history_failure("Version restore stopped because the current revision could not be durably queued", false);
+        return false;
+    }
+
+    // Loading a 3MF resets the live document before load_files reports whether
+    // it actually imported anything. Keep a complete rollback archive first;
+    // a corrupt or otherwise unloadable selected version must not destroy the
+    // document that was open when the user clicked Restore.
+    const stdfs::path rollback_path = p->make_project_history_staging_path();
+    if (rollback_path.empty()) {
+        p->notify_project_history_failure("Version restore could not allocate a rollback snapshot", false);
+        return false;
+    }
+
+    int rollback_export_result = -1;
+    try {
+        const SaveStrategy strategy = SaveStrategy::Silence | SaveStrategy::SplitModel | SaveStrategy::ShareMesh |
+                                      SaveStrategy::SkipThumbnails | SaveStrategy::Deterministic;
+        rollback_export_result = export_3mf(boost::filesystem::path(rollback_path.native()), strategy);
+    } catch (const std::exception &ex) {
+        BOOST_LOG_TRIVIAL(error) << "Could not serialize the project-history restore rollback: " << ex.what();
+    } catch (...) {
+        BOOST_LOG_TRIVIAL(error) << "Could not serialize the project-history restore rollback";
+    }
+    if (rollback_export_result < 0) {
+        std::error_code cleanup_error;
+        stdfs::remove(rollback_path, cleanup_error);
+        p->notify_project_history_failure("Version restore stopped because its rollback .3mf could not be created", false);
+        return false;
+    }
+
+    const wxString restored_path = from_path(boost::filesystem::path(restored_snapshot.native()));
+    bool           selected_load_succeeded = false;
+    p->m_project_history_restore_in_progress = true;
+    ScopeGuard restore_capture_guard([this]() { p->m_project_history_restore_in_progress = false; });
+    // A non-"-" origin selects the existing restore path: load from the
+    // temporary archive while keeping the original project filename. Empty is
+    // intentionally meaningful here and preserves an untitled document. The
+    // out-parameter is the explicit load_files success signal; the dialog id
+    // only describes the earlier close confirmation and cannot prove a load.
+    try {
+        load_project(restored_path, original_saved_project, &selected_load_succeeded, true);
+    } catch (const std::exception &ex) {
+        m_loading_project = false;
+        BOOST_LOG_TRIVIAL(error) << "Selected project-history version threw while loading: " << ex.what();
+    } catch (...) {
+        m_loading_project = false;
+        BOOST_LOG_TRIVIAL(error) << "Selected project-history version threw while loading";
+    }
+
+    // load_project() resets the document and rotates an untitled session id.
+    // Put the original synthetic identity back even on failure so
+    // the same open document never silently changes repositories.
+    restore_untitled_session(false);
+
+    if (!selected_load_succeeded) {
+        bool rollback_load_succeeded = false;
+        try {
+            load_project(from_path(boost::filesystem::path(rollback_path.native())), original_saved_project,
+                         &rollback_load_succeeded, true);
+        } catch (const std::exception &ex) {
+            m_loading_project = false;
+            BOOST_LOG_TRIVIAL(error) << "Project-history rollback threw while loading: " << ex.what();
+        } catch (...) {
+            m_loading_project = false;
+            BOOST_LOG_TRIVIAL(error) << "Project-history rollback threw while loading";
+        }
+
+        if (was_untitled)
+            restore_untitled_session(rollback_load_succeeded);
+        else
+            p->set_project_filename(original_saved_project);
+
+        if (rollback_load_succeeded) {
+            if (original_was_dirty)
+                set_plater_dirty(true);
+            else
+                reset_project_dirty_after_save();
+            std::error_code cleanup_error;
+            stdfs::remove(rollback_path, cleanup_error);
+            BOOST_LOG_TRIVIAL(warning) << "Selected project-history version failed to load; the original document was restored from rollback";
+        } else {
+            // This is intentionally not removed: it is the last complete copy
+            // of the pre-restore document and can be recovered manually.
+            BOOST_LOG_TRIVIAL(error) << "Selected project-history version and rollback both failed to load; rollback retained at "
+                                     << rollback_path.u8string();
+            p->notify_project_history_failure("Version restore failed and its rollback file was retained for recovery", false);
+        }
+        return false;
+    }
+
+    if (!was_untitled)
+        p->set_project_filename(original_saved_project);
+    else
+        restore_untitled_session(true);
+    set_plater_dirty(true);
+    p->capture_project_history_now("Restored project-history version");
+
+    std::error_code cleanup_error;
+    stdfs::remove(rollback_path, cleanup_error);
+    if (cleanup_error)
+        BOOST_LOG_TRIVIAL(warning) << "Could not remove successful project-history restore rollback: " << cleanup_error.message();
+    return true;
+}
+
 bool Plater::is_export_gcode_scheduled() const
 {
     return p->background_process.is_export_scheduled();
@@ -25348,6 +26387,8 @@ int Plater::delete_plate(int plate_index)
 
     //need to call update
     update();
+    if (ret == 0)
+        wxPostEvent(this, SimpleEvent(EVT_GLCANVAS_PLATE_SELECT));
     return ret;
 }
 

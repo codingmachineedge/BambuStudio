@@ -6,6 +6,11 @@
 #include <wx/bookctrl.h>
 #include <wx/sizer.h>
 
+#include "Widgets/MD3Tokens.hpp"
+
+#include <functional>
+#include <utility>
+
 class ModeSizer;
 class ScalableButton;
 class Button;
@@ -22,9 +27,11 @@ public:
 
     void OnPaint(wxPaintEvent&);
     void SetSelection(int sel);
+    void SetColorScheme(MD3::ColorScheme scheme);
     void UpdateMode();
     void Rescale();
     bool InsertPage(size_t n, const wxString &text, bool bSelect = false, const std::string &bmp_name = "", const std::string &inactive_bmp_name = "");
+    void AddAction(const wxString &text, const std::string &bmp_name, std::function<void()> action);
     void RemovePage(size_t n);
     bool SetPageImage(size_t n, const std::string& bmp_name) const;
     void SetPageText(size_t n, const wxString& strText);
@@ -37,12 +44,15 @@ private:
 
     // BBS: use a box sizer so tabs can shrink (Chrome-style) when space is tight
     wxBoxSizer*                     m_buttons_sizer;
+    wxBoxSizer*                     m_actions_sizer;
     wxBoxSizer*                     m_sizer;
     // BBS: use Button
     std::vector<Button*>            m_pageButtons;
+    std::vector<Button*>            m_actionButtons;
     int                             m_selection {-1};
     int                             m_btn_margin;
     int                             m_line_margin;
+    MD3::ColorScheme                m_color_scheme{MD3::ColorScheme::Brand};
     //ModeSizer*                      m_mode_sizer {nullptr};
 };
 
@@ -261,6 +271,11 @@ public:
     }
 
     ButtonsListCtrl* GetBtnsListCtrl() const { return static_cast<ButtonsListCtrl*>(m_bookctrl); }
+
+    void AddNavigationAction(const wxString &text, const std::string &bmp_name, std::function<void()> action)
+    {
+        GetBtnsListCtrl()->AddAction(text, bmp_name, std::move(action));
+    }
 
     void UpdateMode()
     {

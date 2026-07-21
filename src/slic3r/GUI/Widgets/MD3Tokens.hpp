@@ -31,6 +31,17 @@ enum class Role
     InverseOn,
 };
 
+// Workspaces share the same neutral surfaces, type and error roles, while
+// their primary accents communicate the current task context.  Keeping the
+// schemes here prevents Preview/Device controls from falling back to legacy
+// brand-green literals in individual wxWidgets and ImGui implementations.
+enum class ColorScheme
+{
+    Brand,
+    Preview,
+    Device,
+};
+
 namespace Light {
 
 inline const wxColour surface{"#faf8fd"};
@@ -84,6 +95,46 @@ inline const wxColour inverseSurface{"#e3e2e9"};
 inline const wxColour inverseOn{"#2f3036"};
 
 } // namespace Dark
+
+namespace Preview {
+
+// #7c5cff is the approved Preview seed. The dark role is lifted for contrast
+// against the shared dark surfaces, as prescribed by Material color roles.
+inline const wxColour seed{"#7c5cff"};
+inline const wxColour primaryLight{"#7050e8"};
+inline const wxColour onPrimaryLight{"#ffffff"};
+inline const wxColour primaryContainerLight{"#e8ddff"};
+inline const wxColour onPrimaryContainerLight{"#23005c"};
+inline const wxColour secondaryContainerLight{"#e5dff3"};
+inline const wxColour onSecondaryContainerLight{"#211a2d"};
+inline const wxColour primaryDark{"#ad98ff"};
+inline const wxColour onPrimaryDark{"#2b006d"};
+inline const wxColour primaryContainerDark{"#563bc2"};
+inline const wxColour onPrimaryContainerDark{"#e8ddff"};
+inline const wxColour secondaryContainerDark{"#494253"};
+inline const wxColour onSecondaryContainerDark{"#e8dff5"};
+
+} // namespace Preview
+
+namespace Device {
+
+// #14b8a6 is the approved Device seed. Accessible role tones are used for
+// text-bearing controls in light and dark mode.
+inline const wxColour seed{"#14b8a6"};
+inline const wxColour primaryLight{"#0f766e"};
+inline const wxColour onPrimaryLight{"#ffffff"};
+inline const wxColour primaryContainerLight{"#9cf2e7"};
+inline const wxColour onPrimaryContainerLight{"#00201d"};
+inline const wxColour secondaryContainerLight{"#cce8e3"};
+inline const wxColour onSecondaryContainerLight{"#08201d"};
+inline const wxColour primaryDark{"#5eead4"};
+inline const wxColour onPrimaryDark{"#003731"};
+inline const wxColour primaryContainerDark{"#005047"};
+inline const wxColour onPrimaryContainerDark{"#83f5e3"};
+inline const wxColour secondaryContainerDark{"#304a46"};
+inline const wxColour onSecondaryContainerDark{"#cce8e3"};
+
+} // namespace Device
 
 // Resolve by semantic role instead of by light-mode RGB value. Several MD3
 // roles deliberately share a light value but diverge in dark mode (for
@@ -144,6 +195,56 @@ inline const wxColour &resolve(Role role, bool dark)
     }
 
     return Light::surface;
+}
+
+inline const wxColour &resolve(Role role, bool dark, ColorScheme scheme)
+{
+    if (scheme == ColorScheme::Brand)
+        return resolve(role, dark);
+
+    if (scheme == ColorScheme::Preview) {
+        if (dark) {
+            switch (role) {
+            case Role::Primary: return Preview::primaryDark;
+            case Role::OnPrimary: return Preview::onPrimaryDark;
+            case Role::PrimaryContainer: return Preview::primaryContainerDark;
+            case Role::OnPrimaryContainer: return Preview::onPrimaryContainerDark;
+            case Role::SecondaryContainer: return Preview::secondaryContainerDark;
+            case Role::OnSecondaryContainer: return Preview::onSecondaryContainerDark;
+            default: return resolve(role, true);
+            }
+        }
+        switch (role) {
+        case Role::Primary: return Preview::primaryLight;
+        case Role::OnPrimary: return Preview::onPrimaryLight;
+        case Role::PrimaryContainer: return Preview::primaryContainerLight;
+        case Role::OnPrimaryContainer: return Preview::onPrimaryContainerLight;
+        case Role::SecondaryContainer: return Preview::secondaryContainerLight;
+        case Role::OnSecondaryContainer: return Preview::onSecondaryContainerLight;
+        default: return resolve(role, false);
+        }
+    }
+
+    if (dark) {
+        switch (role) {
+        case Role::Primary: return Device::primaryDark;
+        case Role::OnPrimary: return Device::onPrimaryDark;
+        case Role::PrimaryContainer: return Device::primaryContainerDark;
+        case Role::OnPrimaryContainer: return Device::onPrimaryContainerDark;
+        case Role::SecondaryContainer: return Device::secondaryContainerDark;
+        case Role::OnSecondaryContainer: return Device::onSecondaryContainerDark;
+        default: return resolve(role, true);
+        }
+    }
+    switch (role) {
+    case Role::Primary: return Device::primaryLight;
+    case Role::OnPrimary: return Device::onPrimaryLight;
+    case Role::PrimaryContainer: return Device::primaryContainerLight;
+    case Role::OnPrimaryContainer: return Device::onPrimaryContainerLight;
+    case Role::SecondaryContainer: return Device::secondaryContainerLight;
+    case Role::OnSecondaryContainer: return Device::onSecondaryContainerLight;
+    default: return resolve(role, false);
+    }
 }
 
 struct DensityMetrics

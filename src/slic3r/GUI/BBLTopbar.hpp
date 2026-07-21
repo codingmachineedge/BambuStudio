@@ -21,8 +21,7 @@ public:
     void OnIconize(wxAuiToolBarEvent& event);
     void OnFullScreen(wxAuiToolBarEvent& event);
     void OnCloseFrame(wxAuiToolBarEvent& event);
-    void OnFileToolItem(wxAuiToolBarEvent& evt);
-    void OnDropdownToolItem(wxAuiToolBarEvent& evt);
+    void OnTopMenuToolItem(wxAuiToolBarEvent& evt);
     void OnCalibToolItem(wxAuiToolBarEvent &evt);
     void OnMouseLeftDClock(wxMouseEvent& mouse);
     void OnMouseLeftDown(wxMouseEvent& event);
@@ -40,10 +39,8 @@ public:
 
     wxAuiToolBarItem* FindToolByCurrentPosition();
 
-    void SetFileMenu(wxMenu* file_menu);
-    void AddDropDownSubMenu(wxMenu* sub_menu, const wxString& title);
-    void AddDropDownMenuItem(wxMenuItem* menu_item);
-    wxMenu *GetTopMenu();
+    void SetTopMenus(wxMenu* file_menu, wxMenu* edit_menu, wxMenu* view_menu,
+                     wxMenu* objects_menu, wxMenu* help_menu);
     wxMenu *GetCalibMenu();
     void SetTitle(wxString title);
     void SetMaximizedSize();
@@ -60,13 +57,24 @@ public:
     void ShowCalibrationButton(bool show = true);
 
 private:
+    wxMenu* top_menu_for_tool(int tool_id) const;
+    int measure_fixed_content_width() const;
+    void update_responsive_title(int width = -1);
+
     wxFrame* m_frame;
+    wxAuiToolBarItem* m_brand_item;
     wxAuiToolBarItem* m_file_menu_item;
-    wxAuiToolBarItem* m_dropdown_menu_item;
+    wxAuiToolBarItem* m_edit_menu_item;
+    wxAuiToolBarItem* m_view_menu_item;
+    wxAuiToolBarItem* m_objects_menu_item;
+    wxAuiToolBarItem* m_help_menu_item;
     wxRect m_normalRect;
     wxPoint m_delta;
-    wxMenu m_top_menu;
     wxMenu* m_file_menu;
+    wxMenu* m_edit_menu;
+    wxMenu* m_view_menu;
+    wxMenu* m_objects_menu;
+    wxMenu* m_help_menu;
     wxMenu m_calib_menu;
     wxAuiToolBarItem* m_title_item;
     wxAuiToolBarItem* m_account_item;
@@ -86,7 +94,7 @@ private:
     wxBitmap window_bitmap;
 
     int m_toolbar_h;
-    bool m_skip_popup_file_menu;
-    bool m_skip_popup_dropdown_menu;
+    int m_skip_popup_menu_id;
     bool m_skip_popup_calib_menu;
+    wxString m_full_title;
 };

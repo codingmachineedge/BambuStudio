@@ -4,10 +4,10 @@ Bambu Studio is a cutting-edge, feature-rich slicing software.
 It contains project-based workflows, systematically optimized slicing algorithms, and an easy-to-use graphic interface, bringing users an incredibly smooth printing experience.
 
 This fork's maintained delivery target is the native Material Design 3 Windows application. The
-[latest Windows installer](https://github.com/codingmachineedge/BambuStudio/releases/latest/download/BambuStudioMD3-Setup.exe)
+[latest Windows installer](https://github.com/Ding-Ding-Projects/BambuStudio/releases/latest/download/BambuStudioMD3-Setup.exe)
 is a per-user install and does not require administrator elevation. It is currently unsigned; verify
 the accompanying
-[SHA-256 file](https://github.com/codingmachineedge/BambuStudio/releases/latest/download/BambuStudioMD3-Setup.exe.sha256)
+[SHA-256 file](https://github.com/Ding-Ding-Projects/BambuStudio/releases/latest/download/BambuStudioMD3-Setup.exe.sha256)
 before running it. Upstream cross-platform releases remain available from
 [Bambu Lab](https://github.com/bambulab/BambuStudio/releases/), but macOS and Linux are outside this
 fork's release acceptance gate.
@@ -20,30 +20,55 @@ human review. See the
 [language-mode documentation](docs/features/windows/language-modes.md) for coverage and fallback
 details.
 
-## Material Design 3 preview
+## Native Material Design 3
 
-These deterministic captures come from the real [`ui-md3`](ui-md3/) app. Select an image to open
-the same screen, theme, density, accent, and language state in the live interactive concept.
+The production wxWidgets application is being rewritten around Material Design 3 roles and
+interaction patterns. The native source now includes Material top-level navigation and menus,
+responsive Prepare controls, a vertical transform-tool rail, contextual Preview controls, and
+card-based Device controls. The current native rewrite is still completing its Release build,
+desktop smoke test, and screenshot review before it is represented as a finished release.
+
+### Interactive design reference
+
+The images below are deterministic captures of the separate [`ui-md3`](ui-md3/) interactive design
+reference, not screenshots of the native application. Select an image to open the same reference
+screen, theme, density, accent, and language state. Verified native captures will be added after the
+current Release build and desktop smoke pass.
 
 **Prepare · light theme · English**
 
-[![Bambu Studio Material Design 3 Prepare screen in the light theme and English](docs/readme-assets/material-prepare-light-en.png)](https://codingmachineedge.github.io/BambuStudio/app/?view=prepare&theme=light&density=comfortable&accent=%2322c55e&lang=en)
+[![Bambu Studio Material Design 3 Prepare design reference in the light theme and English](docs/readme-assets/material-prepare-light-en.png)](https://ding-ding-projects.github.io/BambuStudio/app/?view=prepare&theme=light&density=comfortable&accent=%2322c55e&lang=en)
 
 | Preview · dark theme · Hong Kong Cantonese | Device · compact dark theme · English + Cantonese |
 | :---: | :---: |
-| [![Bambu Studio Material Design 3 Preview screen in the dark theme and Hong Kong Cantonese](docs/readme-assets/material-preview-dark-yue-hk.png)](https://codingmachineedge.github.io/BambuStudio/app/?view=preview&theme=dark&density=comfortable&accent=%237c5cff&lang=yue_HK) | [![Bambu Studio Material Design 3 Device screen in the compact dark theme with English and Cantonese](docs/readme-assets/material-device-dark-bilingual.png)](https://codingmachineedge.github.io/BambuStudio/app/?view=device&theme=dark&density=compact&accent=%2314b8a6&lang=bilingual_en_yue_HK) |
+| [![Bambu Studio Material Design 3 Preview design reference in the dark theme and Hong Kong Cantonese](docs/readme-assets/material-preview-dark-yue-hk.png)](https://ding-ding-projects.github.io/BambuStudio/app/?view=preview&theme=dark&density=comfortable&accent=%237c5cff&lang=yue_HK) | [![Bambu Studio Material Design 3 Device design reference in the compact dark theme with English and Cantonese](docs/readme-assets/material-device-dark-bilingual.png)](https://ding-ding-projects.github.io/BambuStudio/app/?view=device&theme=dark&density=compact&accent=%2314b8a6&lang=bilingual_en_yue_HK) |
 
-The candidate Windows pipeline builds and tests the native application, exercises installer upgrade
+## Project history
+
+The native app includes app-local, Git-backed version history for `.3mf` projects. Each retained
+revision is a complete project snapshot in an isolated bare repository below Bambu Studio's data
+directory, never a `.git` directory beside the user's project. Automatic edits and completed manual
+saves are queued in order; identical snapshots are suppressed. **File → Version history** lists and
+restores revisions without directly overwriting the saved project, and **Save As** forks the existing
+history to the new project identity when it is safe to do so.
+
+History is local to this device: it is not pushed to the source-code repository, synced to another
+computer, or a replacement for backups. There is not yet a retention or pruning policy, so storage
+can grow with project size and edit count. A restore changes the open session; the project file is
+only replaced when the user explicitly saves it.
+
+The Windows pipeline builds and tests the native application, exercises installer upgrade
 and recovery behavior on a disposable GitHub-hosted runner, produces a per-file CycloneDX 1.6 SBOM,
 and creates GitHub provenance and SBOM attestations for the installer. It validates all three assets
 in a draft before publication and refuses to publish unless repository immutable releases are
-enabled. These new gates still require a successful candidate run before they become release
-evidence. GitHub attestations and checksums are not Authenticode signatures; configuring a trusted
+enabled. The current Material and project-history changes still require a successful final workflow
+run before they become release evidence. GitHub attestations and checksums are not Authenticode
+signatures; configuring a trusted
 Windows signing identity remains external work.
 
 Bambu Studio is based on [PrusaSlicer](https://github.com/prusa3d/PrusaSlicer) by Prusa Research, which is from [Slic3r](https://github.com/Slic3r/Slic3r) by Alessandro Ranellucci and the RepRap community.
 
-See this fork's [wiki](https://github.com/codingmachineedge/BambuStudio/wiki),
+See this fork's [wiki](https://github.com/Ding-Ding-Projects/BambuStudio/wiki),
 [feature documentation](docs/README.md), [roadmap](ROADMAP.md), and [handoff](HANDOFF.md) for the
 MD3 rewrite, verification status, and Windows release details. The original documentation remains in
 [`doc/`](doc/).

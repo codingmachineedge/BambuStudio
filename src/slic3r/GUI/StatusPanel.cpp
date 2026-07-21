@@ -87,9 +87,9 @@ static wxColour device_divider_color() { return StateColor::semantic(MD3::Role::
 static wxColour device_text_color() { return StateColor::semantic(MD3::Role::OnSurface); }
 static wxColour device_secondary_text_color() { return StateColor::semantic(MD3::Role::OnSurfaceVariant); }
 static wxColour device_disabled_text_color() { return StateColor::semantic(MD3::Role::Outline); }
-static wxColour device_primary_color() { return StateColor::semantic(MD3::Role::Primary); }
-static wxColour device_primary_text_color() { return StateColor::semantic(MD3::Role::OnPrimary); }
-static wxColour device_primary_container_color() { return StateColor::semantic(MD3::Role::PrimaryContainer); }
+static wxColour device_primary_color() { return StateColor::semantic(MD3::Role::Primary, MD3::ColorScheme::Device); }
+static wxColour device_primary_text_color() { return StateColor::semantic(MD3::Role::OnPrimary, MD3::ColorScheme::Device); }
+static wxColour device_primary_container_color() { return StateColor::semantic(MD3::Role::PrimaryContainer, MD3::ColorScheme::Device); }
 static wxColour device_control_color() { return StateColor::semantic(MD3::Role::SurfaceContainerHigh); }
 static wxColour device_control_emphasis_color() { return StateColor::semantic(MD3::Role::SurfaceContainerHighest); }
 
@@ -110,14 +110,14 @@ static StateColor device_primary_button_border()
 static StateColor device_primary_button_text()
 {
     return StateColor(std::pair<wxColour, int>(device_disabled_text_color(), StateColor::Disabled),
-                      std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnPrimaryContainer), StateColor::Pressed),
-                      std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnPrimaryContainer), StateColor::Hovered),
+                      std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnPrimaryContainer, MD3::ColorScheme::Device), StateColor::Pressed),
+                      std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnPrimaryContainer, MD3::ColorScheme::Device), StateColor::Hovered),
                       std::pair<wxColour, int>(device_primary_text_color(), StateColor::Normal));
 }
 
-static bool is_semantic_color(const wxColour &color, MD3::Role role)
+static bool is_semantic_color(const wxColour &color, MD3::Role role, MD3::ColorScheme scheme = MD3::ColorScheme::Brand)
 {
-    return color == MD3::resolve(role, false) || color == MD3::resolve(role, true);
+    return color == MD3::resolve(role, false, scheme) || color == MD3::resolve(role, true, scheme);
 }
 
 static void recolor_device_surface_tree(wxWindow *window)
@@ -139,6 +139,8 @@ static void recolor_device_surface_tree(wxWindow *window)
         window->SetForegroundColour(device_text_color());
     else if (is_semantic_color(foreground, MD3::Role::OnSurfaceVariant))
         window->SetForegroundColour(device_secondary_text_color());
+    else if (is_semantic_color(foreground, MD3::Role::Primary, MD3::ColorScheme::Device))
+        window->SetForegroundColour(device_primary_color());
 
     const wxWindowList &children = window->GetChildren();
     for (wxWindowList::compatibility_iterator node = children.GetFirst(); node; node = node->GetNext())
@@ -1150,12 +1152,12 @@ void PrintingTaskPanel::create_panel(wxWindow *parent)
     m_staticText_progress_percent = new wxStaticText(penel_text, wxID_ANY, "0", wxDefaultPosition, wxDefaultSize, 0);
     m_staticText_progress_percent->SetFont(::Label::Head_18);
     m_staticText_progress_percent->SetMaxSize(wxSize(-1, FromDIP(20)));
-    m_staticText_progress_percent->SetForegroundColour(wxColour(0, 174, 66));
+    m_staticText_progress_percent->SetForegroundColour(device_primary_color());
 
     m_staticText_progress_percent_icon = new wxStaticText(penel_text, wxID_ANY, "%", wxDefaultPosition, wxDefaultSize, 0);
     m_staticText_progress_percent_icon->SetFont(::Label::Body_11);
     m_staticText_progress_percent_icon->SetMaxSize(wxSize(-1, FromDIP(13)));
-    m_staticText_progress_percent_icon->SetForegroundColour(wxColour(0, 174, 66));
+    m_staticText_progress_percent_icon->SetForegroundColour(device_primary_color());
 
     sizer_percent->Add(m_staticText_progress_percent, 0, 0, 0);
 
@@ -1936,14 +1938,14 @@ StatusBasePanel::StatusBasePanel(wxWindow *parent, wxWindowID id, const wxPoint 
     bSizer_status_below->Add(m_panel_separator_middle, 0, wxEXPAND | wxALL, 0);
 
     m_machine_ctrl_panel = new wxPanel(this);
-    m_machine_ctrl_panel->SetBackgroundColour(device_card_color());
+    m_machine_ctrl_panel->SetBackgroundColour(device_page_color());
     m_machine_ctrl_panel->SetDoubleBuffered(true);
     auto m_machine_control = create_machine_control_page(m_machine_ctrl_panel);
     m_machine_ctrl_panel->SetSizer(m_machine_control);
     m_machine_ctrl_panel->Layout();
     m_machine_control->Fit(m_machine_ctrl_panel);
 
-    bSizer_status_below->Add(m_machine_ctrl_panel, 0, wxALL, 0);
+    bSizer_status_below->Add(m_machine_ctrl_panel, 0, wxEXPAND | wxALL, 0);
 
     m_panel_separator_right = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxSize(PAGE_SPACING, -1), wxTAB_TRAVERSAL);
     m_panel_separator_right->SetBackgroundColour(device_page_color());
@@ -2232,16 +2234,18 @@ wxBoxSizer *StatusBasePanel::create_machine_control_page(wxWindow *parent)
 
     wxBoxSizer *bSizer_control = new wxBoxSizer(wxVERTICAL);
 
-    auto temp_axis_ctrl_sizer  = create_temp_axis_group(parent);
+    auto temperature_sizer     = create_temp_axis_group(parent);
+    auto print_options_card    = create_print_options_group(parent);
+    auto move_card             = create_move_group(parent);
     auto m_filament_load_sizer = create_filament_group(parent);
 
     /* ams or rack*/
     wxSizer *ams_rack_sizer = new wxBoxSizer(wxHORIZONTAL);
-    ams_rack_sizer->Add(create_ams_group(parent), 0, wxEXPAND | wxLEFT);
+    ams_rack_sizer->Add(create_ams_group(parent), 1, wxEXPAND);
 
     m_panel_nozzle_rack = new wgtDeviceNozzleRack(parent);
     m_panel_nozzle_rack->Show(false);
-    ams_rack_sizer->Add(m_panel_nozzle_rack, 0, wxEXPAND | wxLEFT);
+    ams_rack_sizer->Add(m_panel_nozzle_rack, 1, wxEXPAND);
 
     m_ams_rack_switch = new SwitchBoard(parent, _L("Filament"), _L("Hotends"), wxSize(FromDIP(126), FromDIP(26)));
     m_ams_rack_switch->updateState("left");
@@ -2249,13 +2253,16 @@ wxBoxSizer *StatusBasePanel::create_machine_control_page(wxWindow *parent)
     m_ams_rack_switch->Bind(wxCUSTOMEVT_SWITCH_POS, &StatusBasePanel::on_ams_rack_switch, this);
 
     bSizer_control->Add(0, 0, 0, wxTOP, FromDIP(8));
-    bSizer_control->Add(temp_axis_ctrl_sizer, 0, wxALIGN_CENTER | wxLEFT | wxRIGHT, FromDIP(8));
+    bSizer_control->Add(temperature_sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(8));
+    bSizer_control->Add(0, 0, 0, wxTOP, FromDIP(8));
+    bSizer_control->Add(print_options_card, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(8));
     bSizer_control->Add(m_ams_rack_switch, 0, wxALIGN_CENTRE | wxTOP, FromDIP(6));
     bSizer_control->Add(0, 0, 0, wxTOP, FromDIP(6));
-    bSizer_control->Add(ams_rack_sizer, 0, wxALIGN_CENTER | wxLEFT | wxRIGHT, FromDIP(8));
+    bSizer_control->Add(ams_rack_sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(8));
     bSizer_control->Add(0, 0, 0, wxTOP, FromDIP(6));
-    bSizer_control->Add(m_filament_load_sizer, 0, wxALIGN_CENTER | wxLEFT | wxRIGHT, FromDIP(8));
-    bSizer_control->Add(0, 0, 0, wxTOP, FromDIP(4));
+    bSizer_control->Add(m_filament_load_sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(8));
+    bSizer_control->Add(move_card, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(8));
+    bSizer_control->Add(0, 0, 0, wxTOP, FromDIP(8));
 
     bSizer_right->Add(bSizer_control, 1, wxEXPAND | wxALL, 0);
 
@@ -2276,41 +2283,73 @@ wxBoxSizer *StatusBasePanel::create_temp_axis_group(wxWindow *parent)
     box->SetBackgroundColour(device_card_color());
     box->SetCornerRadius(FromDIP(MD3::Metrics::comfortable.radius));
 
-    box->SetMinSize(wxSize(FromDIP(586), -1));
-    box->SetMaxSize(wxSize(FromDIP(586), -1));
+    auto *title = new Label(box, _L("Temperature"));
+    title->SetFont(Label::Head_12);
+    title->SetForegroundColour(device_secondary_text_color());
 
-    wxBoxSizer *content_sizer = new wxBoxSizer(wxHORIZONTAL);
-    wxBoxSizer *m_temp_ctrl   = create_temp_control(box);
-
-    m_temp_temp_line = new wxPanel(box);
-    m_temp_temp_line->SetMaxSize(wxSize(FromDIP(1), -1));
-    m_temp_temp_line->SetMinSize(wxSize(FromDIP(1), -1));
-    m_temp_temp_line->SetBackgroundColour(device_divider_color());
-
-    auto m_axis_sizer = create_axis_control(box);
-    auto bedPanel     = create_bed_control(box);
-
-    wxBoxSizer *extruder_sizer             = create_extruder_control(box);
-    wxBoxSizer *axis_and_bed_control_sizer = new wxBoxSizer(wxVERTICAL);
-    axis_and_bed_control_sizer->Add(m_axis_sizer, 0, wxEXPAND | wxALL, 0);
-    axis_and_bed_control_sizer->Add(bedPanel, 0, wxALIGN_CENTER, 0);
-
-    content_sizer->Add(m_temp_ctrl, 0, wxEXPAND | wxALL, FromDIP(5));
-    content_sizer->Add(m_temp_temp_line, 0, wxEXPAND, 1);
-    content_sizer->Add(axis_and_bed_control_sizer, 1, wxALIGN_CENTER, 0);
-
-    m_temp_extruder_line = new wxPanel(box);
-    m_temp_extruder_line->SetMaxSize(wxSize(FromDIP(1), -1));
-    m_temp_extruder_line->SetMinSize(wxSize(FromDIP(1), -1));
-    m_temp_extruder_line->SetBackgroundColour(device_divider_color());
-
-    content_sizer->Add(m_temp_extruder_line, 0, wxEXPAND, 1);
-    content_sizer->Add(extruder_sizer, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(12));
-    content_sizer->Add(0, 0, 0, wxRIGHT, FromDIP(3));
+    wxBoxSizer *content_sizer = new wxBoxSizer(wxVERTICAL);
+    content_sizer->Add(title, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(16));
+    content_sizer->Add(create_temp_control(box), 0, wxEXPAND | wxALL, FromDIP(12));
 
     box->SetSizer(content_sizer);
     sizer->Add(box, 0, wxEXPAND | wxALL, FromDIP(0));
     return sizer;
+}
+
+StaticBox *StatusBasePanel::create_print_options_group(wxWindow *parent)
+{
+    m_print_options_box = new StaticBox(parent);
+    m_print_options_box->SetBackgroundColor(StateColor(device_card_color()));
+    m_print_options_box->SetBorderColor(StateColor(device_divider_color()));
+    m_print_options_box->SetBackgroundColour(device_card_color());
+    m_print_options_box->SetCornerRadius(FromDIP(MD3::Metrics::comfortable.radius));
+
+    auto *title = new Label(m_print_options_box, _L("Print Options"));
+    title->SetFont(Label::Head_12);
+    title->SetForegroundColour(device_secondary_text_color());
+
+    auto *sizer = new wxBoxSizer(wxVERTICAL);
+    sizer->Add(title, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(16));
+    m_misc_ctrl_sizer = create_misc_control(m_print_options_box);
+    sizer->Add(m_misc_ctrl_sizer, 0, wxEXPAND | wxALL, FromDIP(12));
+    m_print_options_box->SetSizer(sizer);
+    return m_print_options_box;
+}
+
+StaticBox *StatusBasePanel::create_move_group(wxWindow *parent)
+{
+    m_move_control_box = new StaticBox(parent);
+    m_move_control_box->SetBackgroundColor(StateColor(device_card_color()));
+    m_move_control_box->SetBorderColor(StateColor(device_divider_color()));
+    m_move_control_box->SetBackgroundColour(device_card_color());
+    m_move_control_box->SetCornerRadius(FromDIP(MD3::Metrics::comfortable.radius));
+
+    auto *title = new Label(m_move_control_box, _L("Move"));
+    title->SetFont(Label::Head_12);
+    title->SetForegroundColour(device_secondary_text_color());
+
+    auto *axis_sizer = create_axis_control(m_move_control_box);
+    auto *bed_panel  = create_bed_control(m_move_control_box);
+    auto *extruder_sizer = create_extruder_control(m_move_control_box);
+    auto *axis_and_bed_sizer = new wxBoxSizer(wxVERTICAL);
+    axis_and_bed_sizer->Add(axis_sizer, 0, wxEXPAND);
+    axis_and_bed_sizer->Add(bed_panel, 0, wxALIGN_CENTER);
+
+    m_temp_extruder_line = new wxPanel(m_move_control_box);
+    m_temp_extruder_line->SetMinSize(wxSize(FromDIP(1), -1));
+    m_temp_extruder_line->SetMaxSize(wxSize(FromDIP(1), -1));
+    m_temp_extruder_line->SetBackgroundColour(device_divider_color());
+
+    auto *content_sizer = new wxBoxSizer(wxHORIZONTAL);
+    content_sizer->Add(axis_and_bed_sizer, 1, wxALIGN_CENTER_VERTICAL);
+    content_sizer->Add(m_temp_extruder_line, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(8));
+    content_sizer->Add(extruder_sizer, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(4));
+
+    auto *card_sizer = new wxBoxSizer(wxVERTICAL);
+    card_sizer->Add(title, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(16));
+    card_sizer->Add(content_sizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(12));
+    m_move_control_box->SetSizer(card_sizer);
+    return m_move_control_box;
 }
 
 wxBoxSizer *StatusBasePanel::create_temp_control(wxWindow *parent)
@@ -2385,8 +2424,6 @@ wxBoxSizer *StatusBasePanel::create_temp_control(wxWindow *parent)
     m_tempCtrl_chamber->SetBorderColor(tempinput_border_colour);
     sizer->Add(m_tempCtrl_chamber, 0, wxEXPAND | wxALL, 1);
 
-    m_misc_ctrl_sizer = create_misc_control(parent);
-    sizer->Add(m_misc_ctrl_sizer, 0, wxEXPAND, 0);
     return sizer;
 }
 
@@ -2675,14 +2712,17 @@ StaticBox *StatusBasePanel::create_ams_group(wxWindow *parent)
     m_ams_control_box->SetBorderColor(box_border_colour);
     m_ams_control_box->SetCornerRadius(FromDIP(MD3::Metrics::comfortable.radius));
 
-    m_ams_control_box->SetMinSize(wxSize(FromDIP(586), -1));
     m_ams_control_box->SetBackgroundColour(device_card_color());
 
     m_ams_control = new AMSControl(m_ams_control_box, wxID_ANY);
     m_ams_control->SetDoubleBuffered(true);
 
     auto sizer_box = new wxBoxSizer(wxVERTICAL);
-    sizer_box->Add(m_ams_control, 0, wxALIGN_CENTER_HORIZONTAL | wxALL, FromDIP(3));
+    auto *title = new Label(m_ams_control_box, _L("AMS"));
+    title->SetFont(Label::Head_12);
+    title->SetForegroundColour(device_secondary_text_color());
+    sizer_box->Add(title, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(16));
+    sizer_box->Add(m_ams_control, 0, wxEXPAND | wxALL, FromDIP(3));
 
     m_ams_control_box->SetBackgroundColour(device_card_color());
     m_ams_control_box->SetSizer(sizer_box);
@@ -2697,8 +2737,7 @@ wxBoxSizer *StatusBasePanel::create_filament_group(wxWindow *parent)
 
     auto sizer_scale_panel = new wxBoxSizer(wxHORIZONTAL);
     m_scale_panel          = new wxPanel(parent);
-    m_scale_panel->SetMinSize(wxSize(FromDIP(586), FromDIP(40)));
-    m_scale_panel->SetMaxSize(wxSize(FromDIP(586), FromDIP(40)));
+    m_scale_panel->SetMinSize(wxSize(-1, FromDIP(40)));
     m_scale_panel->SetBackgroundColour(device_card_color());
 
     auto m_title_filament_loading = new Label(m_scale_panel, _L("Filament loading..."));
@@ -2729,8 +2768,6 @@ wxBoxSizer *StatusBasePanel::create_filament_group(wxWindow *parent)
     m_filament_load_box->SetBackgroundColor(box_colour);
     m_filament_load_box->SetBorderColor(box_border_colour);
     m_filament_load_box->SetCornerRadius(FromDIP(MD3::Metrics::comfortable.radius));
-    m_filament_load_box->SetMinSize(wxSize(FromDIP(586), -1));
-    m_filament_load_box->SetMaxSize(wxSize(FromDIP(586), -1));
     m_filament_load_box->SetBackgroundColour(device_card_color());
     m_filament_load_box->SetSizer(sizer_box);
 
@@ -2792,8 +2829,8 @@ wxBoxSizer *StatusBasePanel::create_filament_group(wxWindow *parent)
     m_filament_load_box->Layout();
     m_filament_load_box->Fit();
     m_filament_load_box->Hide();
-    sizer->Add(m_scale_panel, 0, wxALIGN_CENTER_HORIZONTAL | wxTOP, FromDIP(5));
-    sizer->Add(m_filament_load_box, 0, wxALIGN_CENTER_HORIZONTAL | wxALL, 0);
+    sizer->Add(m_scale_panel, 0, wxEXPAND | wxTOP, FromDIP(5));
+    sizer->Add(m_filament_load_box, 0, wxEXPAND | wxALL, 0);
     return sizer;
 }
 
@@ -5868,7 +5905,7 @@ void StatusPanel::on_sys_color_changed()
     // refresh the custom-painted cards/buttons from their semantic roles.
     recolor_device_surface_tree(this);
     SetBackgroundColour(device_page_color());
-    m_machine_ctrl_panel->SetBackgroundColour(device_card_color());
+    m_machine_ctrl_panel->SetBackgroundColour(device_page_color());
     m_panel_monitoring_title->SetBackgroundColour(device_title_color());
     m_panel_control_title->SetBackgroundColour(device_title_color());
     m_camera_fullscreen_button->SetBackgroundColour(device_title_color());
@@ -5877,7 +5914,7 @@ void StatusPanel::on_sys_color_changed()
     m_staticText_control->SetForegroundColour(device_secondary_text_color());
     StateColor card_background(device_card_color());
     StateColor card_border(device_divider_color());
-    for (StaticBox *card : {m_temperature_control_box, m_ams_control_box, m_filament_load_box}) {
+    for (StaticBox *card : {m_temperature_control_box, m_print_options_box, m_ams_control_box, m_move_control_box, m_filament_load_box}) {
         if (!card) continue;
         card->SetBackgroundColor(card_background);
         card->SetBackgroundColour(device_card_color());
@@ -5891,8 +5928,7 @@ void StatusPanel::on_sys_color_changed()
         m_fan_panel->Refresh();
     }
 
-    m_temp_temp_line->SetBackgroundColour(device_divider_color());
-    m_temp_extruder_line->SetBackgroundColour(device_divider_color());
+    if (m_temp_extruder_line) m_temp_extruder_line->SetBackgroundColour(device_divider_color());
     m_line_nozzle->SetLineColour(device_divider_color());
 
     StateColor temp_text(std::make_pair(device_disabled_text_color(), (int) StateColor::Disabled),
@@ -6558,13 +6594,12 @@ wxBoxSizer *ScoreDialog::get_button_sizer()
     wxBoxSizer *bSizer_button = new wxBoxSizer(wxHORIZONTAL);
     bSizer_button->Add(0, 0, 1, wxEXPAND, 0);
 
-    StateColor btn_bg_green(std::pair<wxColour, int>(wxColour(27, 136, 68), StateColor::Pressed), std::pair<wxColour, int>(wxColour(61, 203, 115), StateColor::Hovered),
-                            std::pair<wxColour, int>(AMS_CONTROL_BRAND_COLOUR, StateColor::Normal));
+    StateColor btn_bg_green = device_primary_button_background();
 
     m_button_ok = new Button(this, _L("Submit"));
     m_button_ok->SetBackgroundColor(btn_bg_green);
-    m_button_ok->SetBorderColor(*wxWHITE);
-    m_button_ok->SetTextColor(wxColour("#FFFFFE"));
+    m_button_ok->SetBorderColor(device_primary_button_border());
+    m_button_ok->SetTextColor(device_primary_button_text());
     m_button_ok->SetFont(Label::Body_12);
     m_button_ok->SetSize(wxSize(FromDIP(58), FromDIP(24)));
     m_button_ok->SetMinSize(wxSize(FromDIP(58), FromDIP(24)));
@@ -6857,10 +6892,10 @@ void RectTextPanel::OnPaint(wxPaintEvent &event)
     const auto &size = GetSize();
 
     wxPaintDC dc(this);
-    dc.SetBrush(wxBrush(wxColour("#00AE42")));
-    dc.SetPen(wxPen(wxColour("#00AE42")));
+    dc.SetBrush(wxBrush(device_primary_color()));
+    dc.SetPen(wxPen(device_primary_color()));
     dc.DrawRoundedRectangle(size, FromDIP(4));
-    dc.SetTextForeground(wxColour(255, 255, 255));
+    dc.SetTextForeground(device_primary_text_color());
     dc.DrawText(text, wxPoint(FromDIP(2), FromDIP(2)));
 }
 

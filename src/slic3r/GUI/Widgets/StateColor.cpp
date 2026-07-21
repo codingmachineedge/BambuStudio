@@ -58,6 +58,8 @@ bool StateColor::isDarkMode() { return gDarkMode; }
 
 wxColour StateColor::semantic(MD3::Role role) { return MD3::resolve(role, gDarkMode); }
 
+wxColour StateColor::semantic(MD3::Role role, MD3::ColorScheme scheme) { return MD3::resolve(role, gDarkMode, scheme); }
+
 inline wxColour darkModeColorFor2(wxColour const &color)
 {
     if (!gDarkMode)

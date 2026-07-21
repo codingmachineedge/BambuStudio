@@ -602,6 +602,9 @@ bool GLToolbar::add_separator()
 bool GLToolbar::del_all_item()
 {
     m_items.clear();
+    m_pressed_toggable_id = -1;
+    m_mouse_capture.reset();
+    m_icons_texture_dirty = true;
     m_layout.dirty = true;
     return true;
 }
@@ -993,6 +996,9 @@ bool GLToolbar::update_items_pressed_state()
         ret = true;
         if (item->is_pressed()) {
             item->set_state(GLToolbarItem::EState::Normal);
+            if (m_pressed_toggable_id == i) {
+                m_pressed_toggable_id = -1;
+            }
         }
         else {
             item->set_state(GLToolbarItem::EState::Pressed);
@@ -1280,6 +1286,10 @@ void GLToolbar::do_action(GLToolbarItem::EActionType type, int item_id, GLCanvas
             {
                 // the item may get disabled during the action, if not, set it back to normal state
                 item->set_state(GLToolbarItem::Normal);
+            }
+
+            if (m_pressed_toggable_id == item_id && !item->is_pressed()) {
+                m_pressed_toggable_id = -1;
             }
 
             parent.set_as_dirty();
@@ -1643,7 +1653,6 @@ void ToolbarAutoSizeRenderer::render_vertical(const GLToolbar& t_toolbar, const 
                 item->render_rect[3] = top;
                 item->render_text();
             }
-            top -= icon_stride;
             if (item->get_type() == GLToolbarItem::EType::SeparatorLine) {
                 top -= (icon_stride - 0.5f * scaled_icons_size);
             }

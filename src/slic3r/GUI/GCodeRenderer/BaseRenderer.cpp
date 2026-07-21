@@ -5,6 +5,7 @@
 #include "slic3r/GUI/MsgDialog.hpp"
 #include "slic3r/GUI/FilamentGroupPopup.hpp"
 #include "slic3r/GUI/GLToolbar.hpp"
+#include "slic3r/GUI/Widgets/MD3Tokens.hpp"
 #include "slic3r/GUI/DeviceCore/DevUtilBackend.h"
 #include "../DeviceCore/DevConfigUtil.h"
 #include "libslic3r/BuildVolume.hpp"
@@ -15,9 +16,16 @@
 #include "../Utils/HelioDragon.hpp"
 #include <imgui/imgui_internal.h>
 #include <GL/glew.h>
+#include <cfloat>
 #include <chrono>
 namespace
 {
+    ImVec4 md3_imgui_color(MD3::Role role, bool dark, MD3::ColorScheme scheme = MD3::ColorScheme::Preview, float alpha = 1.0f)
+    {
+        const wxColour &color = MD3::resolve(role, dark, scheme);
+        return ImVec4(color.Red() / 255.0f, color.Green() / 255.0f, color.Blue() / 255.0f, alpha);
+    }
+
     std::string get_view_type_string(Slic3r::GUI::gcode::EViewType view_type)
     {
         if (view_type == Slic3r::GUI::gcode::EViewType::Summary)
@@ -767,16 +775,19 @@ namespace Slic3r
                         return;
                 }
                 ImGuiWrapper& imgui = *wxGetApp().imgui();
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0, 10.0 * m_scale));
-                ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(1.0f, 1.0f, 1.0f, 0.6f));
-                ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.00f, 0.68f, 0.26f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.00f, 0.68f, 0.26f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, ImVec4(0.42f, 0.42f, 0.42f, 1.00f));
-                ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, ImVec4(0.93f, 0.93f, 0.93f, 1.00f));
-                ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, ImVec4(0.93f, 0.93f, 0.93f, 1.00f));
-                ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(69.0f / 255.0f, 69.0f / 255.0f, 67.0f / 255.0f, 0.94f));
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+                const ImVec4 primary = md3_imgui_color(MD3::Role::Primary, m_is_dark);
+                const ImVec4 primary_container = md3_imgui_color(MD3::Role::PrimaryContainer, m_is_dark);
+                const ImVec4 outline = md3_imgui_color(MD3::Role::OutlineVariant, m_is_dark);
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16.0f * m_scale);
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0f, 12.0f) * m_scale);
+                ImGui::PushStyleColor(ImGuiCol_Separator, outline);
+                ImGui::PushStyleColor(ImGuiCol_Header, primary_container);
+                ImGui::PushStyleColor(ImGuiCol_HeaderHovered, primary_container);
+                ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, outline);
+                ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, primary);
+                ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, primary);
+                ImGui::PushStyleColor(ImGuiCol_WindowBg, md3_imgui_color(MD3::Role::SurfaceContainer, m_is_dark));
+                ImGui::PushStyleColor(ImGuiCol_Text, md3_imgui_color(MD3::Role::OnSurface, m_is_dark));
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(340.f * m_scale * imgui.scaled(1.0f / 15.0f), 0));
                 ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), 0, ImVec2(0.5f, 0.5f));
                 ImGui::Begin(_L("Statistics of All Plates").c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
@@ -1202,6 +1213,8 @@ namespace Slic3r
                 filament_printable_reuslt.reset();
                 m_legend_enabled = true;
                 m_legend_height = 0.0f;
+                m_legend_width = 0.0f;
+                m_legend_expanded = false;
                 m_extruders_count = 0;
                 m_roles.clear();
                 m_max_print_height = 0.0f;
@@ -1374,7 +1387,10 @@ namespace Slic3r
                         length_of_line = 90;
                     }
                     // end helio
-                    p_sequential_view->render(m_legend_height, canvas_width, canvas_height - bottom_margin * m_scale, right_margin * m_scale, m_view_type, [this](size_t& length_of_line)->void {
+                    const float sequential_top = m_legend_expanded ? 0.0f : m_legend_height;
+                    const int sequential_right = static_cast<int>(std::lround(
+                        right_margin * m_scale + (m_legend_expanded ? m_legend_width : 0.0f)));
+                    p_sequential_view->render(sequential_top, canvas_width, canvas_height - bottom_margin * m_scale, sequential_right, m_view_type, [this](size_t& length_of_line)->void {
                         length_of_line = 90;
                         this->set_show_horizontal_slider(true);
                     }, is_show_horizontal_slider(), is_helio_option());
@@ -1419,6 +1435,9 @@ namespace Slic3r
 
             void BaseRenderer::render_legend(float& legend_height, int canvas_width, int canvas_height, int right_margin)
             {
+                legend_height = 0.0f;
+                m_legend_width = 0.0f;
+                m_legend_expanded = false;
                 if (!m_legend_enabled)
                     return;
                 const Size cnv_size = wxGetApp().plater()->get_current_canvas3D()->get_canvas_size();
@@ -1430,14 +1449,11 @@ namespace Slic3r
                 imgui.set_next_window_pos(float(canvas_width - right_margin * m_scale), 0.0f, ImGuiCond_Always, 1.0f, 0.0f);
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0, 0.0));
-                const ImVec4 primary = m_is_dark ? ImVec4(139.0f / 255.0f, 216.0f / 255.0f, 155.0f / 255.0f, 1.0f)
-                                                : ImVec4(20.0f / 255.0f, 108.0f / 255.0f, 46.0f / 255.0f, 1.0f);
-                const ImVec4 primary_container = m_is_dark ? ImVec4(9.0f / 255.0f, 82.0f / 255.0f, 40.0f / 255.0f, 1.0f)
-                                                          : ImVec4(166.0f / 255.0f, 244.0f / 255.0f, 184.0f / 255.0f, 1.0f);
-                const ImVec4 outline = m_is_dark ? ImVec4(74.0f / 255.0f, 76.0f / 255.0f, 84.0f / 255.0f, 1.0f)
-                                                : ImVec4(197.0f / 255.0f, 198.0f / 255.0f, 208.0f / 255.0f, 1.0f);
-                const ImVec4 surface = m_is_dark ? ImVec4(27.0f / 255.0f, 28.0f / 255.0f, 33.0f / 255.0f, 1.0f)
-                                                : ImVec4(250.0f / 255.0f, 248.0f / 255.0f, 253.0f / 255.0f, 1.0f);
+                const ImVec4 primary = md3_imgui_color(MD3::Role::Primary, m_is_dark);
+                const ImVec4 primary_container = md3_imgui_color(MD3::Role::PrimaryContainer, m_is_dark);
+                const ImVec4 outline = md3_imgui_color(MD3::Role::OutlineVariant, m_is_dark);
+                const ImVec4 surface = md3_imgui_color(MD3::Role::Surface, m_is_dark);
+                const ImVec4 surface_container_high = md3_imgui_color(MD3::Role::SurfaceContainerHigh, m_is_dark);
                 ImGui::PushStyleColor(ImGuiCol_Separator, outline);
                 ImGui::PushStyleColor(ImGuiCol_Header, primary_container);
                 ImGui::PushStyleColor(ImGuiCol_HeaderHovered, primary_container);
@@ -1450,10 +1466,26 @@ namespace Slic3r
                 const float max_height = std::max(1.0f, static_cast<float>(cnv_size.get_height()) - 58.0f * m_scale);
                 const float child_height = 0.3333f * max_height;
                 const float available_width = std::max(1.0f, static_cast<float>(canvas_width) - right_margin * m_scale);
-                const float legend_max_width = std::max(1.0f, std::min(344.0f * m_scale, available_width - 12.0f * m_scale));
-                const float legend_min_width = std::min(312.0f * m_scale, legend_max_width);
-                ImGui::SetNextWindowSizeConstraints({ legend_min_width, 0.0f }, { legend_max_width, max_height });
-                imgui.begin(std::string("Legend"), ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
+                if (available_width < 112.0f * m_scale) {
+                    ImGui::PopStyleColor(8);
+                    ImGui::PopStyleVar(2);
+                    return;
+                }
+                const bool forced_compact = available_width < 280.0f * m_scale;
+                const bool dock_collapsed = m_fold || forced_compact;
+                const float window_padding = 4.0f * m_scale;
+                const float header_height = ImGui::GetFrameHeight() + window_padding * 2.5f;
+                // Preview uses a real right-side dock, not an auto-sized popup.
+                // Clamp only for genuinely narrow canvases; at normal desktop
+                // widths the dock is the same 344 DIP column as the Material
+                // reference and occupies the canvas above the bottom timeline.
+                const float legend_width = std::max(1.0f, std::min(344.0f * m_scale, available_width - 12.0f * m_scale));
+                ImGui::SetNextWindowSize({ legend_width, dock_collapsed ? header_height : max_height }, ImGuiCond_Always);
+                imgui.begin(std::string("Legend"), ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                                                   ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove |
+                                                   ImGuiWindowFlags_HorizontalScrollbar);
+                m_legend_width = legend_width;
+                m_legend_expanded = !dock_collapsed;
                 enum class EItemType : unsigned char
                 {
                     Rect,
@@ -1474,13 +1506,11 @@ namespace Slic3r
                 bool imperial_units = wxGetApp().app_config->get("use_inches") == "1";
                 ImDrawList* draw_list = ImGui::GetWindowDrawList();
                 ImVec2 pos_rect = ImGui::GetCursorScreenPos();
-                float window_padding = 4.0f * m_scale;
                 float checkbox_offset = 0.0f;
                 draw_list->AddRectFilled(ImVec2(pos_rect.x, pos_rect.y - ImGui::GetStyle().WindowPadding.y),
                     ImVec2(pos_rect.x + ImGui::GetWindowWidth() + ImGui::GetFrameHeight(), pos_rect.y + ImGui::GetFrameHeight() + window_padding * 2.5),
-                    ImGui::GetColorU32(m_is_dark ? ImVec4(57.0f / 255.0f, 58.0f / 255.0f, 65.0f / 255.0f, 1.0f)
-                                                    : ImVec4(232.0f / 255.0f, 231.0f / 255.0f, 238.0f / 255.0f, 1.0f)));
-                auto append_item = [icon_size, &imgui, imperial_units, &window_padding, &draw_list, &checkbox_offset, this](
+                    ImGui::GetColorU32(surface_container_high), 10.0f * m_scale);
+                auto append_item = [icon_size, &imgui, imperial_units, &window_padding, &draw_list, &checkbox_offset, primary, this](
                     EItemType type,
                     const Color& color,
                     const std::vector<std::pair<std::string, float>>& columns_offsets,
@@ -1521,9 +1551,9 @@ namespace Slic3r
                         if (callback) {
                             ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f * m_scale);
                             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20.0 * m_scale, 0.0));
-                            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(1.00f, 0.68f, 0.26f, 0.0f));
-                            ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(1.00f, 0.68f, 0.26f, 0.0f));
-                            ImGui::PushStyleColor(ImGuiCol_BorderActive, ImVec4(0.00f, 0.68f, 0.26f, 1.00f));
+                            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(primary.x, primary.y, primary.z, 0.0f));
+                            ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(primary.x, primary.y, primary.z, 0.0f));
+                            ImGui::PushStyleColor(ImGuiCol_BorderActive, primary);
                             float max_height = 0.f;
                             for (auto column_offset : columns_offsets) {
                                 if (ImGui::CalcTextSize(column_offset.first.c_str()).y > max_height)
@@ -1537,7 +1567,7 @@ namespace Slic3r
                             if (checkbox) {
                                 ImGui::SameLine(checkbox_offset);
                                 ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0, 0.0));
-                                ImGui::PushStyleColor(ImGuiCol_CheckMark, ImVec4(0.00f, 0.68f, 0.26f, 1.00f));
+                                ImGui::PushStyleColor(ImGuiCol_CheckMark, primary);
                                 ImGui::Checkbox(("##" + columns_offsets[0].first).c_str(), &visible);
                                 ImGui::PopStyleColor(1);
                                 ImGui::PopStyleVar(1);
@@ -1723,32 +1753,30 @@ namespace Slic3r
                 ImGui::Dummy({ window_padding, window_padding });
                 ImGui::Dummy({ window_padding, window_padding });
                 ImGui::SameLine();
-                ImVec2      title_start_pos = ImGui::GetCursorPos();
                 std::string title = _u8L("Slicing Result");
                 imgui.bold_text(title);
 
-                // BBS Set the width of the 8 "ABCD" words minus the "sliced result" to the spacing between the buttons and the title
-                float single_word_width = imgui.calc_text_size("ABCD").x;
-                float title_width = imgui.calc_text_size(title).x;
-                float spacing = 18.0f * m_scale;
-                ImGui::SameLine(0, (single_word_width + spacing) * 8.0f - title_width);
                 // BBS support helio
                 std::wstring btn_name;
-                if (m_fold)
+                if (dock_collapsed)
                     btn_name = ImGui::UnfoldButtonIcon + boost::nowide::widen(std::string(""));
                 else
                     btn_name = ImGui::FoldButtonIcon + boost::nowide::widen(std::string(""));
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.0f, 0.68f, 0.26f, 1.00f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.0f, 0.68f, 0.26f, 0.78f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, primary_container);
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, primary);
                 ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
                 float button_width = ImGui::CalcTextSize(into_u8(btn_name).c_str()).x;
-                ImGui::SetCursorPosY(8.f);
-                if (ImGui::Button(into_u8(btn_name).c_str(), ImVec2(button_width, 0))) { m_fold = !m_fold; }
+                ImGui::SameLine();
+                ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(),
+                    ImGui::GetWindowContentRegionMax().x - button_width - window_padding * 2.0f));
+                ImGui::SetCursorPosY(8.0f * m_scale);
+                if (ImGui::Button(into_u8(btn_name).c_str(), ImVec2(button_width, 0)) && !forced_compact)
+                    m_fold = !m_fold;
                 ImGui::PopStyleColor(3);
                 ImGui::PopStyleVar(1);
-                if (m_fold) {
-                    legend_height = ImGui::GetStyle().WindowPadding.y + ImGui::GetFrameHeight() + window_padding * 2.5;
+                if (dock_collapsed) {
+                    legend_height = header_height;
                     imgui.end();
                     ImGui::PopStyleColor(8);
                     ImGui::PopStyleVar(2);
@@ -1759,7 +1787,6 @@ namespace Slic3r
                 ImGui::Dummy({ window_padding, window_padding });
                 ImGui::SameLine();
                 imgui.bold_text(_u8L("Color Scheme"));
-                ImGui::SameLine();
                 auto curr_plate_index = wxGetApp().plater()->get_partplate_list().get_curr_plate_index();
                 if (wxGetApp().plater()->get_helio_process_status() != m_last_helio_process_status || m_gcode_result->update_imgui_flag) {
                     auto load_only_gcode = wxGetApp().plater()->only_gcode_mode();
@@ -1801,11 +1828,75 @@ namespace Slic3r
                         }
                     }
                 }
+                // Keep the five primary Preview modes immediately visible as
+                // Material filter chips. Advanced and Helio modes stay in the
+                // overflow combo below, so no production capability is lost.
+                const std::array<EViewType, 5> primary_view_types = {
+                    EViewType::FeatureType,
+                    EViewType::Feedrate,
+                    EViewType::LayerTime,
+                    EViewType::VolumetricRate,
+                    EViewType::Temperature
+                };
+                const auto is_primary_view = [&primary_view_types](EViewType type) {
+                    return std::find(primary_view_types.begin(), primary_view_types.end(), type) != primary_view_types.end();
+                };
+                float widest_chip_label = 0.0f;
+                int primary_view_count = 0;
+                for (const EViewType type : primary_view_types) {
+                    const auto item = std::find(view_type_items.begin(), view_type_items.end(), type);
+                    if (item == view_type_items.end())
+                        continue;
+                    const int index = static_cast<int>(std::distance(view_type_items.begin(), item));
+                    widest_chip_label = std::max(widest_chip_label,
+                        ImGui::CalcTextSize(view_type_image_names[index].option_name.c_str()).x);
+                    ++primary_view_count;
+                }
+                const float minimum_chip_width = std::max(112.0f * m_scale, widest_chip_label + 24.0f * m_scale);
+                const float chip_region_width = ImGui::GetContentRegionAvail().x;
+                const int chip_columns = chip_region_width >= minimum_chip_width * 2.0f + ImGui::GetStyle().ItemSpacing.x ? 2 : 1;
+                if (primary_view_count > 0 && ImGui::BeginTable("##preview_primary_views", chip_columns,
+                                       ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings)) {
+                    for (std::size_t chip = 0; chip < primary_view_types.size(); ++chip) {
+                        ImGui::TableNextColumn();
+                        const EViewType type = primary_view_types[chip];
+                        const auto item = std::find(view_type_items.begin(), view_type_items.end(), type);
+                        if (item == view_type_items.end())
+                            continue;
+                        const int index = static_cast<int>(std::distance(view_type_items.begin(), item));
+                        const bool selected = m_view_type_sel == index;
+                        ImGui::PushID(index);
+                        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 16.0f * m_scale);
+                        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f * m_scale);
+                        ImGui::PushStyleColor(ImGuiCol_Button, selected ? primary_container : surface);
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, primary_container);
+                        ImGui::PushStyleColor(ImGuiCol_ButtonActive, primary);
+                        ImGui::PushStyleColor(ImGuiCol_Border, selected ? primary : outline);
+                        ImGui::PushStyleColor(ImGuiCol_Text, selected ? primary : md3_imgui_color(MD3::Role::OnSurface, m_is_dark));
+                        const std::string &chip_label = view_type_image_names[index].option_name;
+                        if (ImGui::Button(chip_label.c_str(), ImVec2(-FLT_MIN, 28.0f * m_scale))) {
+                            m_fold = false;
+                            apply_view_type_selection(index, type);
+                        }
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("%s", chip_label.c_str());
+                        ImGui::PopStyleColor(5);
+                        ImGui::PopStyleVar(2);
+                        ImGui::PopID();
+                    }
+                    ImGui::EndTable();
+                }
+
                 ImGuiComboFlags flags = 0;
-                const char* view_type_value = view_type_image_names[m_view_type_sel].option_name.c_str();
-                if (ImGui::BBLBeginCombo("", view_type_value, flags)) {
+                const EViewType selected_view_type = view_type_items[m_view_type_sel];
+                const std::string overflow_label = is_primary_view(selected_view_type)
+                    ? _u8L("More")
+                    : view_type_image_names[m_view_type_sel].option_name;
+                if (ImGui::BBLBeginCombo("##preview_view_overflow", overflow_label.c_str(), flags)) {
                     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
                     for (int i = 0; i < view_type_image_names.size(); i++) {
+                        if (is_primary_view(view_type_items[i]))
+                            continue;
                         const bool is_selected = (m_view_type_sel == i);
                         if (hide_additional_fan_speed && view_type_items[i] == EViewType::AdditionalFanSpeed) {
                             continue;
@@ -2288,9 +2379,9 @@ namespace Slic3r
                         ImGui::Dummy({ window_padding, window_padding });
                         ImGui::SameLine();
 
-                        // Render as hyperlink with green color and underline
+                        // Preview links use the contextual Material accent.
                         std::string label = _u8L("View Summary");
-                        ImColor HyperColor = ImColor(0, 174, 66, 255).Value;
+                        ImColor HyperColor(md3_imgui_color(MD3::Role::Primary, m_is_dark));
                         ImGui::PushStyleColor(ImGuiCol_Text, HyperColor.Value);
                         imgui.text(label.c_str());
                         ImGui::PopStyleColor();
@@ -2595,6 +2686,12 @@ namespace Slic3r
                 // total estimated printing time section
                 if (show_estimated) {
                     ImGui::Spacing();
+                    // Render the estimate as a Material card inside the fixed
+                    // legend dock. Draw the surface on a lower channel so the
+                    // existing localized content and controls remain unchanged.
+                    draw_list->ChannelsSplit(2);
+                    draw_list->ChannelsSetCurrent(1);
+                    ImGui::BeginGroup();
                     std::string time_title = m_view_type == EViewType::FeatureType ? _u8L("Total Estimation") : _u8L("Time Estimation");
                     auto can_show_mode_button = [this](PrintEstimatedStatistics::ETimeMode mode) {
                         bool show = false;
@@ -2730,6 +2827,13 @@ namespace Slic3r
                     }
                     default: { assert(false); break; }
                     }
+                    ImGui::EndGroup();
+                    const ImVec2 stats_min = ImGui::GetItemRectMin() - ImVec2(6.0f, 4.0f) * m_scale;
+                    const ImVec2 stats_max = ImGui::GetItemRectMax() + ImVec2(6.0f, 6.0f) * m_scale;
+                    draw_list->ChannelsSetCurrent(0);
+                    draw_list->AddRectFilled(stats_min, stats_max, ImGui::GetColorU32(surface_container_high), 12.0f * m_scale);
+                    draw_list->AddRect(stats_min, stats_max, ImGui::GetColorU32(outline), 12.0f * m_scale, 0, 1.0f * m_scale);
+                    draw_list->ChannelsMerge();
                 }
                 if (m_view_type == EViewType::ColorPrint) {
                     ImGui::Spacing();
@@ -2743,7 +2847,9 @@ namespace Slic3r
                 ImGui::Dummy({ window_padding, window_padding });
                 if (m_nozzle_nums > 1)
                     render_legend_color_arr_recommen(window_padding, is_show_left_right_result);
-                legend_height = ImGui::GetCurrentWindow()->Size.y;
+                // Expanded docks reserve horizontal canvas space for sequential
+                // G-code text. Collapsed docks instead reserve just their header.
+                legend_height = 0.0f;
                 imgui.end();
                 ImGui::PopStyleColor(8);
                 ImGui::PopStyleVar(2);
@@ -2770,7 +2876,7 @@ namespace Slic3r
                 ImGuiWrapper& imgui = *wxGetApp().imgui();
                 auto link_text = [&](const std::string& label) {
                     ImVec2 wiki_part_size = ImGui::CalcTextSize(label.c_str());
-                    ImColor HyperColor = ImColor(0, 174, 66, 255).Value;
+                    ImColor HyperColor(md3_imgui_color(MD3::Role::Primary, m_is_dark));
                     ImGui::PushStyleColor(ImGuiCol_Text, HyperColor.Value);
                     imgui.text(label.c_str());
                     ImGui::PopStyleColor();
@@ -2793,7 +2899,7 @@ namespace Slic3r
                     };
                 auto link_text_set_to_optional = [&](const std::string& label) {
                     ImVec2 wiki_part_size = ImGui::CalcTextSize(label.c_str());
-                    ImColor HyperColor = ImColor(0, 174, 66, 255).Value;
+                    ImColor HyperColor(md3_imgui_color(MD3::Role::Primary, m_is_dark));
                     ImGui::PushStyleColor(ImGuiCol_Text, HyperColor.Value);
                     imgui.text(label.c_str());
                     ImGui::PopStyleColor();
@@ -2819,7 +2925,7 @@ namespace Slic3r
                     };
                 auto link_filament_group_wiki = [&](const std::string& label) {
                     ImVec2 wiki_part_size = ImGui::CalcTextSize(label.c_str());
-                    ImColor HyperColor = ImColor(0, 174, 66, 255).Value;
+                    ImColor HyperColor(md3_imgui_color(MD3::Role::Primary, m_is_dark));
                     ImGui::PushStyleColor(ImGuiCol_Text, HyperColor.Value);
                     imgui.text(label.c_str());
                     ImGui::PopStyleColor();
@@ -3195,17 +3301,22 @@ namespace Slic3r
 
             void BaseRenderer::push_combo_style()
             {
-                ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+                const ImVec4 primary = md3_imgui_color(MD3::Role::Primary, m_is_dark);
+                const ImVec4 primary_container = md3_imgui_color(MD3::Role::PrimaryContainer, m_is_dark);
+                const ImVec4 surface_low = md3_imgui_color(MD3::Role::SurfaceContainerLow, m_is_dark);
+                const ImVec4 surface_high = md3_imgui_color(MD3::Role::SurfaceContainerHigh, m_is_dark);
+                const ImVec4 surface_highest = md3_imgui_color(MD3::Role::SurfaceContainerHighest, m_is_dark);
+                ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.0f * m_scale);
                 ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0, 8.0));
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.3f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.0f, 0.0f, 0.0f, 0.3f));
-                ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.3f));
-                ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.0f, 0.0f, 0.0f, 0.3f));
-                ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.0f, 0.0f, 0.0f, 0.8f));
-                ImGui::PushStyleColor(ImGuiCol_BorderActive, ImVec4(0.00f, 0.68f, 0.26f, 1.00f));
-                ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.00f, 0.68f, 0.26f, 0.0f));
-                ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.00f, 0.68f, 0.26f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_Button, surface_high);
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, surface_highest);
+                ImGui::PushStyleColor(ImGuiCol_FrameBg, surface_high);
+                ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, surface_highest);
+                ImGui::PushStyleColor(ImGuiCol_PopupBg, surface_low);
+                ImGui::PushStyleColor(ImGuiCol_BorderActive, primary);
+                ImGui::PushStyleColor(ImGuiCol_HeaderHovered, primary_container);
+                ImGui::PushStyleColor(ImGuiCol_HeaderActive, primary_container);
             }
             void BaseRenderer::pop_combo_style()
             {
@@ -3677,7 +3788,7 @@ namespace Slic3r
                 ImGuiWrapper& imgui = *wxGetApp().imgui();
                 //BBS: GUI refactor: add canvas size from parameters
                 imgui.set_next_window_pos(0.5f * static_cast<float>(canvas_width), static_cast<float>(canvas_height), ImGuiCond_Always, 0.5f, 1.0f);
-                imgui.push_toolbar_style(m_scale);
+                imgui.push_preview_toolbar_style(m_scale);
                 ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0, 4.0 * m_scale));
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20.0 * m_scale, 6.0 * m_scale));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, text_name_clr);
@@ -3861,7 +3972,7 @@ namespace Slic3r
                 imgui.end();
                 ImGui::PopStyleVar(2);
                 ImGui::PopStyleColor(2);
-                imgui.pop_toolbar_style();
+                imgui.pop_preview_toolbar_style();
             }
 
             //BBS: GUI refactor: move to the right

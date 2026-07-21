@@ -18090,6 +18090,105 @@ msgid ""
 "Less babysitting, more predictable output. Example: a small farm running PETG parts avoids 'fail at hour 6' surprises and keeps batches on schedule."
 msgstr ""
 
+msgid "Version history"
+msgstr ""
+
+msgid "Browse complete project snapshots saved automatically in a private local Git repository."
+msgstr ""
+
+msgid "Untitled project"
+msgstr ""
+
+msgid "Project: %s"
+msgstr ""
+
+msgid "Commit"
+msgstr ""
+
+msgid "Restoring adds a new version. It never overwrites the project file or rewinds Git history."
+msgstr ""
+
+msgid "Restore selected"
+msgstr ""
+
+msgid "Version history is unavailable because its local repository could not be initialized."
+msgstr ""
+
+msgid "Version history is unavailable for this project."
+msgstr ""
+
+msgid "Project history could not save the latest edit. The app will retry automatically."
+msgstr ""
+
+msgid "Project history could not save the latest edit. Its recovery snapshot was kept on this device."
+msgstr ""
+
+msgid "The latest edit could not be added to version history. Its recovery snapshot was kept on this device."
+msgstr ""
+
+msgid "Version history is waiting for the current operation to finish. Try again when it completes."
+msgstr ""
+
+msgid "Loading versions..."
+msgstr ""
+
+msgid "Load all versions"
+msgstr ""
+
+msgid "Showing the newest %d versions. Load all versions to browse older history."
+msgstr ""
+
+msgid "Could not load version history: %s"
+msgstr ""
+
+msgid "Could not load version history."
+msgstr ""
+
+msgid ""
+"Restore the selected version in the editor?\n"
+"\n"
+"The project file will not be overwritten. The restored state will be recorded as a new version."
+msgstr ""
+
+msgid "Restore project version"
+msgstr ""
+
+msgid "Could not create a secure temporary location for the restored project."
+msgstr ""
+
+msgid "Preparing selected version..."
+msgstr ""
+
+msgid "Could not restore the selected version: %s"
+msgstr ""
+
+msgid "Could not restore the selected version."
+msgstr ""
+
+msgid "%d versions saved on this device"
+msgstr ""
+
+msgid "No versions yet. A version is created automatically after completed edits and project saves."
+msgstr ""
+
+msgid "Selected commit: "
+msgstr ""
+
+msgid "Unknown time"
+msgstr ""
+
+msgid "Project snapshot"
+msgstr ""
+
+msgid "The selected project version could not be prepared."
+msgstr ""
+
+msgid "The selected version was not restored."
+msgstr ""
+
+msgid "Browse and restore local Git-backed project versions"
+msgstr ""
+
 #~ msgid "Second"
 #~ msgstr "Second"
 

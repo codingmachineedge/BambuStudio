@@ -35,6 +35,7 @@
 #include "Search.hpp"
 #include "BitmapCache.hpp"
 #include "FilamentBitmapUtils.hpp"
+#include "Widgets/MD3Tokens.hpp"
 
 #include "../Utils/MacDarkMode.hpp"
 #ifdef __APPLE__
@@ -2414,6 +2415,12 @@ std::vector<unsigned char> ImGuiWrapper::load_svg(const std::string& bitmap_name
 //BBS
 static bool m_is_dark_mode = false;
 
+static ImVec4 md3_imgui_color(MD3::Role role, MD3::ColorScheme scheme, float alpha = 1.0f)
+{
+    const wxColour &color = MD3::resolve(role, m_is_dark_mode, scheme);
+    return ImVec4(color.Red() / 255.0f, color.Green() / 255.0f, color.Blue() / 255.0f, alpha);
+}
+
 void ImGuiWrapper::on_change_color_mode(bool is_dark)
 {
     m_is_dark_mode = is_dark;
@@ -2487,6 +2494,29 @@ void ImGuiWrapper::push_menu_style(const float scale)
     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, header);
     ImGui::PushStyleColor(ImGuiCol_HeaderActive, header);
 }
+
+void ImGuiWrapper::push_preview_toolbar_style(const float scale)
+{
+    push_toolbar_style(scale);
+    const ImVec4 primary = md3_imgui_color(MD3::Role::Primary, MD3::ColorScheme::Preview);
+    const ImVec4 container = md3_imgui_color(MD3::Role::PrimaryContainer, MD3::ColorScheme::Preview);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, container);       // 1
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, container);      // 2
+    ImGui::PushStyleColor(ImGuiCol_TextSelectedBg, container);     // 3
+    ImGui::PushStyleColor(ImGuiCol_CheckMark, primary);            // 4
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, primary); // 5
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, primary);  // 6
+    ImGui::PushStyleColor(ImGuiCol_SliderGrab, primary);           // 7
+    ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, primary);     // 8
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, container);      // 9
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, container);       // 10
+}
+
+void ImGuiWrapper::pop_preview_toolbar_style()
+{
+    ImGui::PopStyleColor(10);
+    pop_toolbar_style();
+}
 void ImGuiWrapper::pop_menu_style()
 {
     ImGui::PopStyleColor(4);
@@ -2534,6 +2564,27 @@ void ImGuiWrapper::push_common_window_style(const float scale) {
     ImGui::PushStyleColor(ImGuiCol_CheckMark, primary);       // 13
     ImGui::PushStyleColor(ImGuiCol_TextSelectedBg, selected); // 14
     ImGui::PushStyleColor(ImGuiCol_PlotHistogram, primary);   // 15
+}
+
+void ImGuiWrapper::push_preview_menu_style(const float scale)
+{
+    const ImVec4 popup = md3_imgui_color(MD3::Role::SurfaceContainerLow, MD3::ColorScheme::Preview);
+    const ImVec4 header = md3_imgui_color(MD3::Role::PrimaryContainer, MD3::ColorScheme::Preview);
+    push_preview_toolbar_style(scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f, 12.0f) * scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 10.0f * scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f * scale);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, popup);
+    ImGui::PushStyleColor(ImGuiCol_Header, header);
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, header);
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, header);
+}
+
+void ImGuiWrapper::pop_preview_menu_style()
+{
+    ImGui::PopStyleColor(4);
+    ImGui::PopStyleVar(3);
+    pop_preview_toolbar_style();
 }
 
 void ImGuiWrapper::pop_common_window_style() {

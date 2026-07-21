@@ -1,132 +1,153 @@
 # Handoff
 
-## Current state
+## Repository state
 
-- Canonical repository: `https://github.com/codingmachineedge/BambuStudio.git`
+- Canonical repository: `https://github.com/Ding-Ding-Projects/BambuStudio.git`
 - Branch: `master`
-- Last synchronized remote commit before this handoff update:
-  `a8bc8d24d25ec1a89c2b977148324dbdaf40424e`
-- Current candidate code commit:
-  `5b35200729921b4f98a91061440a4735585eb03b`
-- Last fully published baseline: commit `1f1ecb960a19aaba18b619210ddca63629198a70`,
-  Actions run `29671557311`, release `md3-windows-v02.08.01.55-r6.1`
-- Last published installer SHA-256:
-  `c66137776687585240e757ac33baa61d3693737c5aac73c145bf2d08d783a89d`
-- Candidate runs `29708683379` (`0d077cd3`) and `29709187257` (`a8bc8d24d`) each passed
-  the complete application build, then failed while linking `libnest2d_tests.exe` with the same 17
-  missing static-library symbols. Neither run produced artifacts or a release.
-- Commit `5b3520072` makes `libslic3r` own its HTTP/encryption sources, curl/OpenSSL/BCrypt link
-  closure, and NanoSVG parser implementation. A new Windows candidate run is required to validate it.
-- Repository immutable releases are enabled (`enabled: true`).
-- Pages: `https://codingmachineedge.github.io/BambuStudio/`; deployment run `29709187022` passed,
-  and live English, Cantonese-preview, and bilingual modes passed query, persistence, override, asset,
-  and error-free browser checks.
-- Local Windows prerequisites are installed and verified. The fresh dependency superbuild is active in
-  `deps/build-local`; the application, targeted C++ tests, and isolated local launch remain to complete.
+- Last pushed commit at the start of this handoff update: `63778e0e8` (`Add isolated Git-backed project history core`)
+- `origin/master` matched that commit before the remaining native integration work was committed.
+- The working tree contains the native Material integration, project-history lifecycle and dialog,
+  translations, tests, and hosted-test wiring described below. Those changes still need their final
+  review, authoritative build, smoke pass, commits, and push.
+- Preserve the user's existing change to
+  `src/slic3r/GUI/DeviceWeb/device_page/src/routeTree.gen.ts`. It is unrelated to this effort and must
+  not be included in the Material/history commits.
 
-The current candidate is Windows-only. macOS and Linux source support remains upstream but is not part
-of this fork's acceptance or release work.
+The most recent pushed implementation sequence is:
 
-## Repository and branch reconciliation
+- `122ac853d` — fix NanoSVG integration in Windows Release builds;
+- `e962e099e` — apply Material roles to production workspaces;
+- `c39270ca8` — move Prepare actions into the Material bottom bar; and
+- `63778e0e8` — add the isolated Git-backed project-history core.
 
-The checkout and a fresh clone were previously proved to have identical `master` commit and tree
-objects. All MD3 commits were ancestors of `master`. The remaining branch audit concluded:
+Replace the provisional values above after the final pushes:
 
-- `remote_branch_v13` was fully merged, proved ancestral to `origin/master`, and deleted remotely.
-- `SaltWei-patch-1`, `bambu-pomfret/web-conflict`, `release/20260417`, and `remote_branch_v12` are
-  patch-equivalent to changes already on `master`.
-- `feature/libnoise-deps` is superseded by the fuller official `bambulab/libnoise` integration.
-- `copilot/fix-ams-spinning-icon-issue` conflicts with the current N3S tray-ID model and must not be
-  merged without a current device-backed reproduction and test.
-- `v1.*` branches are archival 2022–2024 release lines thousands of commits behind current code.
+- Final tested source commit: **PENDING**
+- Final documentation commit: **PENDING**
+- Final `master` / `origin/master` equality and worktree audit: **PENDING**
 
-No valid remote branch change remained to merge. The final handoff must repeat the branch, worktree,
-and stash audit after all candidate commits are pushed.
+## Native Material implementation
 
-## Candidate code state
+This effort modifies the real native wxWidgets/OpenGL application. The separate `ui-md3` application
+remains an interactive design reference; its images are not evidence that the native application
+matches the design.
 
-The candidate implements these Windows features. They are not yet represented as a passed final
-release because the new link-closure commit still needs local and hosted validation:
+The current native source includes:
 
-- Three canonical UI modes: English (`en`), Hong Kong Cantonese preview (`yue_HK`), and compact
-  bilingual preview (`bilingual_en_yue_HK`), with existing Bambu Studio locales retained.
-- A 242-message curated native Cantonese preview catalog, full 178-key DeviceWeb and 168-key legacy
-  local-web resources, Pages language persistence/query override, English fallback, safe remote-service
-  routing, and Traditional CJK font/glyph selection.
-- Installer language selection and first-launch registry hand-off, including silent `/LANGMODE=`
-  validation and preference persistence across uninstall.
-- Native language-mode/catalog C++ tests, resource/placeholder checks, an installer execution matrix,
-  and a deterministic three-scenario native text/image/JSON evidence gate on disposable
-  GitHub-hosted Windows runners.
-- CycloneDX 1.6 per-file payload inventory, GitHub installer provenance/SBOM attestations, exactly
-  three release assets, draft digest validation, stable same-run retry tags, serialized latest
-  selection, pinned Actions, and a required repository immutable-release setting.
-- Refreshed npm and production pnpm DeviceWeb locks with zero-advisory audit results on 2026-07-19,
-  plus the route tree generated identically by both refreshed graphs. Hosted production builds also
-  fail closed on high-severity pnpm audit findings.
-- Removal of the unused public `StateColor::GetDarkMap()` accessor.
-- Correct one- and two-item `libnest2d` test callback signatures and a self-contained static
-  `libslic3r` dependency boundary, without unresolved-symbol bypasses or GUI overlinking.
+- semantic Material light/dark color roles shared by native widgets, with brand-green, Preview-purple,
+  and Device-teal contextual schemes;
+- a Material top bar with the Bambu Studio identity, File/Edit/View/Objects/Help menus, responsive
+  sizing, and a Settings action that opens the real Preferences UI;
+- contextual Prepare/Preview/Device navigation state;
+- a responsive Prepare sidebar for printer identity, bed selection, synchronization, and one-column
+  filament rows;
+- a left-side vertical transform/gizmo rail and top-centered scene commands in Prepare;
+- a Material Prepare bottom bar with plate selection, add-plate, estimates, Helio, Slice, and Print
+  actions wired to the existing application commands;
+- a contextual Preview legend/dock, primary view-mode chips, timeline treatment, and localized
+  supporting controls; and
+- full-width Temperature, Print Options, AMS, and Move cards in the native Device status panel while
+  retaining the official networking-plugin gate.
 
-The canonical `agent-global-memory` checkout is
-`C:\Users\Administrator\Documents\GitHub\agent-global-memory`. Its `origin` points to the canonical
-repository, `scripts/sync-agent-memory.ps1 status` reports managed targets current, and
-`memory/SHARED_INSTRUCTIONS.md` supplied the active cross-agent requirements.
+The remaining code review is focused on narrow-window/localization behavior, toolbar highlight
+ownership, plate-state refresh, responsive Preview/sequence coexistence, and final lifecycle capture
+boundaries. Do not describe Material parity as verified until the final installed executable has been
+smoked and its native captures have been visually reviewed.
 
-## Verification already established
+## App-local project history
 
-- The `1f1ecb960` baseline compiled, installed, packaged, and published successfully in Actions run
-  `29671557311`; its checksum is recorded above. It predates the new candidate gates.
-- Commits `0d077cd3` and `a8bc8d24d` both completed the production Windows application build on a
-  GitHub-hosted runner. Their failure is isolated to the separately configured `libnest2d_tests`
-  executable link step.
-- The first failure exposed incorrect callback signatures; `0d077cd3` fixed those signatures. The
-  later link failure consistently reported BCrypt, OpenSSL MD5, `BBL_Encrypt`, `Slic3r::Http`, and
-  NanoSVG symbols. Commit `5b3520072` assigns those implementations and link dependencies to
-  `libslic3r`, the static library that consumes them.
-- `scripts/ci/Test-WindowsRelease.ps1` passes locally after that fix. It validates PowerShell, JSON,
-  browser JavaScript, immutable Action pins, DeviceWeb behavior, deterministic uninstall generation,
-  CycloneDX generation, 242 native translations, 178 DeviceWeb translations, 168 legacy-web
-  translations, and all 13 language-mode tests.
-- Pages run `29709187022` is deployed and live three-mode browser QA passes with no console, page,
-  request, or HTTP failures.
-- Visual Studio 2026, MSVC 19.51, CMake 4.4, PowerShell 7.6.3, verified Strawberry Perl 5.42.2,
-  and pkg-config-lite 0.28 are available locally. The dependency build uses an isolated prefix and
-  does not modify the user's installed Bambu Studio profile.
+The project-history repository is deliberately separate from both the source checkout and the user's
+project directory. Production constructs `ProjectHistoryManager` with `Slic3r::data_dir()` and stores
+bare repositories below:
 
-Do not copy the baseline or failed run numbers into final release evidence. After the complete
-workflow passes, record all of the following:
+```text
+<Bambu Studio data directory>/project_history/v1/<SHA-256 project identity>
+```
 
-- final commit and clean `master`/`origin/master` equality;
-- Actions run ID/URL and the successful Windows job names;
-- reviewed `light-en.png`, `dark-yue_HK.png`, and `light-bilingual.png` plus their JSON evidence;
-- unique release tag and latest/non-latest decision;
-- installer SHA-256 and exact three release asset names;
-- CycloneDX component count, version, and commit binding;
-- successful `gh attestation verify` result for the downloaded installer;
-- repository/release immutable state; and
-- final branch, worktree, stash, wiki, and Pages audit.
+Each Git commit contains a complete immutable `.3mf` snapshot blob. The project path is normalized and
+hashed for repository identity, so Bambu Studio never creates a `.git` directory beside a project and
+never commits project data to `Ding-Ding-Projects/BambuStudio`.
 
-## External dependencies and remaining risk
+Lifecycle behavior implemented in the current source is:
 
-- The user authorized an ordinary local application build and isolated `--datadir` smoke launch. That
-  launch is not complete yet. No candidate installer has been executed locally, and no Windows Sandbox
-  session has been run.
-- No low-level/headless desktop MCP is callable in this environment. The deterministic native capture
-  script remains hard-restricted to a real disposable GitHub-hosted runner and must not be spoofed;
-  an ordinary targeted local window smoke is separate evidence.
-- Authenticode remains externally blocked on a trusted certificate/provider and secure credential
-  configuration. SHA-256 checksums and GitHub attestations are not Authenticode and do not establish a
-  Windows trusted publisher.
-- The repository immutable-release setting is enabled. The candidate workflow still verifies it and
-  fails closed if it changes before publication.
-- Native Cantonese is intentionally partial. Missing copy falls back to English; broader independent
-  human review is still required for print safety, destructive actions, account/privacy, networking,
-  and recovery text. Formal `zh_TW` is not a Cantonese substitute.
-- The native capture gate proves the compiled wxWidgets evidence surface's exact scenario text, CJK
-  contract, light/dark luminance, contrast, and distinct output. It is not a golden-image comparison,
-  accessibility audit, font introspection, or traversal of ordinary product screens.
-- The file-level CycloneDX document inventories packaged bytes but is not a vulnerability or complete
-  license analysis.
+- discrete project edits, undo/redo operations, and completed manual saves schedule ordered snapshots;
+- snapshots are materialized into private staging files before a serialized worker commits them, and
+  byte-identical consecutive snapshots do not create duplicate commits;
+- transient capture/commit failures retain pending recovery data where possible, retry with a delay,
+  and notify the user instead of silently reporting success;
+- shutdown flushes pending capture work and drains submitted worker operations;
+- **Save As** forks the complete ancestry to the new path identity and then commits the completed new
+  save; an existing unrelated destination history causes migration to fail closed;
+- **File → Version history** lists full commit IDs and restores a selected snapshot into the open
+  session through a temporary archive; it does not directly overwrite the saved project file; and
+- restore first preserves the current state, uses a rollback snapshot on load failure, retains the
+  original project identity, and records the successful restored state as a new revision.
+
+Important limits to communicate to users:
+
+- History is local-only. It is not a cloud service, remote Git backup, or collaboration mechanism.
+- There is no retention, quota, or pruning policy yet. Complete `.3mf` revisions can consume
+  substantial disk space and historical Git objects may retain content removed in later revisions.
+- The feature cannot guarantee persistence through an unrecoverable disk-full, permission, filesystem,
+  or hardware failure. It warns and retries recoverable failures, but conventional backups remain
+  necessary.
+- Save As has explicit ancestry migration. Moving or renaming a project outside Bambu Studio can produce
+  a different path identity and therefore a different history.
+- A restored revision changes the in-memory session. The user's saved project is changed only by a
+  later explicit save.
+
+The focused history-core suite previously passed all seven cases for isolated storage, duplicate
+suppression, validation, ordered commits, restore safety, identity migration, collision handling, and
+shutdown draining. That was not the final integrated binary: rerun the suite after lifecycle changes
+and prove multiple discrete UI edits produce distinct reachable snapshots before calling the feature
+verified.
+
+## Build and verification state
+
+The dependency superbuild and an earlier Release baseline are available locally under
+`deps/build-local` and `install_local`. A targeted compile of the current native integration was still
+running when this documentation update began. It is not final evidence.
+
+The final verifier must record all of the following from the same tested source state:
+
+- Release configure/build/install command and result: **PENDING**
+- `project_history_tests` result and case count: **PENDING**
+- `libnest2d_tests` result and case count: **PENDING**
+- `language_mode_tests` result and case count: **PENDING**
+- `scripts/ci/Test-WindowsRelease.ps1` result and reported native/DeviceWeb/legacy counts: **PENDING**
+- Installed executable path and isolated `--datadir`: **PENDING**
+- Native desktop smoke results for Prepare, Preview, Device/plugin gate, dark/light themes, resize,
+  localization, slice, project history, restore, and Save As: **PENDING**
+- Reachable history commit count and content proof after several separate UI edits: **PENDING**
+- Reviewed native screenshot paths: **PENDING**
+
+Use the available low-level desktop/computer-control integration for the installed-app smoke. Window
+capture alone may omit the child WGL surface, so README evidence must come from a compositor/full-display
+capture and be visually inspected. Do not substitute `ui-md3` reference images or synthetic/mock
+screenshots for native evidence.
+
+## Hosted CI and release state
+
+The Windows workflow now requests `project_history_tests` alongside `libnest2d_tests` and
+`language_mode_tests`. The latest known run for the pushed history-core commit was:
+
+- `https://github.com/Ding-Ding-Projects/BambuStudio/actions/runs/29753284085` — status must be
+  rechecked; it was still in progress when last observed.
+
+The final implementation push will create a newer run, so the run above must not be presented as final
+Material/history evidence. Record:
+
+- Final Actions run ID and URL: **PENDING**
+- Successful Windows job names and test summaries: **PENDING**
+- Installer/SBOM/checksum artifact names and retention: **PENDING**
+- Release tag, latest/non-latest decision, and publication state: **PENDING**
+- Installer SHA-256, CycloneDX component count, and commit binding: **PENDING**
+- `gh attestation verify` result, if release artifacts are published: **PENDING**
+- Repository/release immutable state and final branch/stash audit: **PENDING**
+
+Checksums and GitHub attestations are not Authenticode signatures. A trusted Windows signing identity
+and securely configured signing provider remain external work. Native Cantonese coverage also remains
+a curated preview requiring independent human review for safety-critical, destructive, privacy,
+account, recovery, and networking text.
 
 No Postman collection is applicable because this work exposes no HTTP API.

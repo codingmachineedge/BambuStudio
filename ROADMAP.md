@@ -1,61 +1,76 @@
 # Roadmap
 
-## Completed in code
+## Landed on `master`
 
-- Merge the browser concept and native C++ Material Design 3 rewrite into `master`.
-- Retarget native chrome and custom widgets to semantic light/dark tokens.
-- Bundle and privately register Roboto on Windows; route Cantonese/Traditional CJK labels to Microsoft
-  JhengHei UI and the Traditional Chinese ImGui glyph range.
-- Retheme Home, Filament Manager, and Device webviews.
-- Fix the Windows `wxColour` lookup regression and remove the unused public
-  `StateColor::GetDarkMap()` API.
-- Produce a fixed-path, per-user NSIS installer with ownership-scoped, non-recursive uninstall and
-  synchronous upgrade cleanup.
-- Implement installer language choice and first-launch hand-off for `en`, `yue_HK`, and
-  `bilingual_en_yue_HK` while preserving existing Bambu Studio locales.
-- Add the native language-mode resolver, a curated 242-message Cantonese preview catalog, safe
-  English fallback, format-before-bilingual-presentation APIs, full DeviceWeb/legacy-web resources,
-  and persisted Pages language behavior.
-- Add dependency-free language/resource checks, native language-mode C++ tests, installer execution
-  tests, and a guarded native visual-capture script for disposable GitHub-hosted Windows runners.
-- Add a per-file CycloneDX 1.6 payload inventory, installer provenance/SBOM attestations, exact
-  three-asset draft validation, stable idempotent reruns, serialized publication, pinned Actions, and
-  an immutable-release precondition.
-- Refresh both DeviceWeb lock graphs to zero-advisory results on 2026-07-19, regenerate the shared
-  route tree, and gate the pinned pnpm production graph on high-severity audit findings.
-- Deploy and browser-verify the Pages landing/app in English, Cantonese preview, and bilingual mode,
-  including query retention, persisted selection, URL override, canonical assets, and zero browser
-  errors (run `29709187022`).
-- Enable repository immutable releases and retain the workflow's fail-closed precondition.
-- Fix the `libnest2d` callback signatures exposed by run `29677702628`.
-- Make `libslic3r` own its HTTP/encryption sources, curl/OpenSSL/BCrypt dependency closure, and NanoSVG
-  parser implementation so standalone C++ tests do not rely on GUI-library side effects
-  (`5b3520072`).
+- Establish semantic Material light/dark roles in the production native workspaces, including
+  contextual brand, Preview, and Device schemes.
+- Move the primary Prepare actions into a Material bottom bar with live sidebar spacing.
+- Add the isolated libgit2-backed project-history core and focused tests for complete `.3mf`
+  snapshots, ordered commits, safe restore, Save As identity migration, collision handling, and
+  shutdown draining.
+- Close the Windows Release NanoSVG/static-library dependency boundary needed by standalone native
+  tests.
+- Retain English, Hong Kong Cantonese preview (`yue_HK`), and compact bilingual-preview language
+  modes, with English fallback and existing Bambu Studio locales.
+- Retain the Windows installer, CycloneDX, checksum, attestation, immutable-release, and disposable
+  runner validation gates already encoded in the workflows.
 
-## In progress
+## Native integration in progress
 
-- Push `5b3520072` with this handoff update, run the complete candidate Windows workflow, and prove the
-  corrected `libnest2d_tests` link and execution. Runs `29708683379` and `29709187257` already prove
-  the production application build but failed at the earlier static test link boundary.
-- Finish the fresh local dependency build, configure/build/install the Release application, build and
-  run `libnest2d_tests` plus `language_mode_tests`, and smoke the installed GUI with a fresh isolated
-  `--datadir`.
-- Inspect all three hosted native capture artifacts and record final commit, run, release, checksum,
-  CycloneDX, attestation, and immutable-release evidence.
-- Expand the partial native Cantonese catalog beyond the curated high-value flows and obtain
-  independent human review of safety-critical print, account, networking, privacy, and destructive
-  copy.
-- Synchronize the repository wiki and replace interim failure evidence in the handoff/release docs with
-  the final successful candidate evidence.
-- A low-level/headless desktop MCP is not available. Keep the guarded deterministic capture on the
-  GitHub-hosted runner; Windows Sandbox remains an optional additional review and has not been run.
+- Finish review and compile fixes for the real wxWidgets/OpenGL Material implementation:
+  - Material top bar and menu structure;
+  - responsive Prepare printer/bed/filament sidebar;
+  - top scene commands and left vertical transform/gizmo rail;
+  - Prepare plate/estimate/slice/print bottom bar;
+  - contextual Preview dock, chips, timeline, and sequential-view layout; and
+  - native Device Temperature, Print Options, AMS, and Move cards.
+- Finish project-history lifecycle integration so each discrete edit boundary is staged before the
+  next edit can replace its state, manual saves are captured exactly, shutdown drains pending work,
+  and recoverable failures remain visible and retryable.
+- Finish **File → Version history**, rollback-safe restore, Save As ancestry migration, and Material
+  styling for the history dialog.
+- Finish native Cantonese strings for the new Material/history surfaces and rerun placeholder,
+  resource, and fallback checks.
+- Run the authoritative Release configure/build/install on the final source state.
+- Build and run `project_history_tests`, `libnest2d_tests`, `language_mode_tests`, and
+  `scripts/ci/Test-WindowsRelease.ps1` from that state.
+- Smoke the installed application with a fresh isolated `--datadir` through the available low-level
+  desktop/computer-control integration. Cover import, separate edits, save, Save As, history listing,
+  safe restore, slice, Preview, Device/plugin gate, theme, localization, and resize behavior.
+- Inspect the app-local bare repository after the smoke and prove that separate edits are reachable
+  as distinct complete `.3mf` revisions in strict order.
+- Capture full-compositor screenshots of the real native Prepare, Preview, and Device surfaces,
+  visually review them, and replace or supplement the README's clearly labeled `ui-md3` reference
+  images.
+- Split the remaining changes into reviewable commits, preserve the unrelated generated-route-tree
+  change, push `master`, and monitor the resulting GitHub Actions run to completion.
+- Replace all pending fields in `HANDOFF.md` with tested commit, build, test, smoke, screenshot, and
+  hosted-run evidence.
+
+## Needed before calling Material/history complete
+
+- Confirm localized Preview chips and statistics remain usable at narrow widths and do not occlude
+  the sequential G-code view.
+- Confirm top-bar navigation, Preferences, Prepare plate state, gizmo highlighting, DPI changes,
+  light/dark changes, mouse capture, and tooltips remain wired to production behavior.
+- Confirm the Device cards preserve the official networking-plugin gate; do not bypass or simulate
+  that production boundary for screenshots.
+- Confirm restore never overwrites the current project implicitly, Save As retains ancestry without
+  joining unrelated histories, and capture/commit failures surface a durable recovery message.
+- Document local-history storage and privacy prominently: no cloud sync, no source-repository commits,
+  no retention/pruning yet, path-based identity, full-snapshot disk growth, and no replacement for
+  ordinary backups.
+- Obtain independent human review of Cantonese copy for print safety, destructive actions,
+  account/privacy, recovery, and networking flows.
 
 ## Later or externally blocked
 
+- Add an explicit history quota, retention/pruning controls, repository maintenance, export/import,
+  and optional user-controlled backup or synchronization. None of these are part of the current
+  local-history implementation.
+- Add deterministic native screenshot baselines, pixel-difference thresholds, OCR/glyph checks, and
+  broader keyboard/accessibility traversal after the initial real-app smoke is stable.
 - Configure Authenticode with a trusted signing identity/provider and publish the certificate and
-  rotation policy. GitHub artifact attestations are not Authenticode and do not satisfy this item.
-- Add deterministic screenshot baselines, pixel-diff thresholds, OCR/glyph checks, and representative
-  native screen traversal; the current three-capture smoke gate checks startup and nonblank output,
-  not full visual equivalence.
-- Complete native Cantonese coverage and ongoing linguistic QA; `zh_TW` must remain formal written
-  Traditional Chinese and must never be used as a Cantonese substitute.
+  rotation policy. GitHub artifact attestations and SHA-256 checksums do not satisfy this item.
+- Complete Cantonese coverage and ongoing linguistic QA. Formal `zh_TW` must remain written
+  Traditional Chinese and must not be treated as a Cantonese substitute.

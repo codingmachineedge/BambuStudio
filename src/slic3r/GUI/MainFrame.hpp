@@ -37,8 +37,11 @@
 #define ENABEL_PRINT_ALL 0
 
 class Notebook;
+class Button;
 class wxBookCtrlBase;
 class wxProgressDialog;
+class wxSizerItem;
+class wxStaticText;
 
 namespace Slic3r {
 
@@ -257,6 +260,9 @@ public:
     };
 
     void update_layout();
+    // Keeps the native Material Prepare bottom bar synchronized with plate
+    // changes originating from the canvas, object list, undo, or file load.
+    void update_prepare_action_bar_content();
 
 	// Called when closing the application and when switching the application language.
 	void 		shutdown();
@@ -347,6 +353,7 @@ public:
     bool can_upload() const;
     void save_project();
     bool save_project_as(const wxString& filename = wxString());
+    void show_project_history();
 
     void        add_to_recent_projects(const wxString& filename);
     void        get_recent_projects(boost::property_tree::wptree &tree, int images);
@@ -396,6 +403,11 @@ public:
     wxBoxSizer*           m_side_tools{ nullptr };
     wxPanel*              m_prepare_action_bar{ nullptr };
     wxPanel*              m_prepare_action_bar_divider{ nullptr };
+    wxSizerItem*          m_prepare_left_sidebar_spacer{ nullptr };
+    wxSizerItem*          m_prepare_right_sidebar_spacer{ nullptr };
+    Button*               m_prepare_plate_button{ nullptr };
+    Button*               m_prepare_add_plate_button{ nullptr };
+    wxStaticText*         m_prepare_estimate_label{ nullptr };
     ParamsPanel*          m_param_panel{ nullptr };
     ParamsDialog*         m_param_dialog{ nullptr };
     //BBS

@@ -2,6 +2,7 @@
 #include "libslic3r/GCode.hpp"
 #include "GUI_App.hpp"
 #include "NotificationManager.hpp"
+#include "Widgets/MD3Tokens.hpp"
 #ifndef IMGUI_DEFINE_MATH_OPERATORS
 #define IMGUI_DEFINE_MATH_OPERATORS
 #endif
@@ -21,12 +22,11 @@ static const float  GROOVE_WIDTH      = 12.0f;
 static const ImVec2 ONE_LAYER_MARGIN  = ImVec2(20.0f, 20.0f);
 static const ImVec2 ONE_LAYER_BUTTON_SIZE  = ImVec2(28.0f, 28.0f);
 
-static const ImU32 BACKGROUND_COLOR_DARK  = IM_COL32(37, 38, 43, 255);
-static const ImU32 BACKGROUND_COLOR_LIGHT = IM_COL32(255, 255, 255, 255);
-static const ImU32 GROOVE_COLOR_DARK      = IM_COL32(74, 76, 84, 255);
-static const ImU32 GROOVE_COLOR_LIGHT     = IM_COL32(197, 198, 208, 255);
-static const ImU32 PRIMARY_COLOR_DARK     = IM_COL32(139, 216, 155, 255);
-static const ImU32 PRIMARY_COLOR_LIGHT    = IM_COL32(20, 108, 46, 255);
+static ImU32 preview_color(MD3::Role role, bool dark, unsigned char alpha = 255)
+{
+    const wxColour &color = MD3::resolve(role, dark, MD3::ColorScheme::Preview);
+    return IM_COL32(color.Red(), color.Green(), color.Blue(), alpha);
+}
 
 
 static int m_tick_value = -1;
@@ -457,8 +457,8 @@ bool IMSlider::switch_one_layer_mode()
 }
 
 void IMSlider::draw_background_and_groove(const ImRect& bg_rect, const ImRect& groove) {
-    const ImU32 bg_rect_col = m_is_dark ? BACKGROUND_COLOR_DARK : BACKGROUND_COLOR_LIGHT;
-    const ImU32 groove_col = m_is_dark ? GROOVE_COLOR_DARK : GROOVE_COLOR_LIGHT;
+    const ImU32 bg_rect_col = preview_color(MD3::Role::SurfaceContainerLow, m_is_dark);
+    const ImU32 groove_col = preview_color(MD3::Role::OutlineVariant, m_is_dark);
 
     // draw bg of slider
     ImGui::RenderFrame(bg_rect.Min, bg_rect.Max, bg_rect_col, false, 0.5 * bg_rect.GetWidth());
@@ -490,9 +490,9 @@ bool IMSlider::horizontal_slider(const char* str_id, int* value, int v_min, int 
     const ImVec2 text_padding        = ImVec2(5.0f, 2.0f) * m_scale;
     const float  triangle_offsets[3] = {-3.5f * m_scale, 3.5f * m_scale, -6.06f * m_scale};
 
-    const ImU32 white_bg = m_is_dark ? BACKGROUND_COLOR_DARK : BACKGROUND_COLOR_LIGHT;
-    const ImU32 handle_clr = m_is_dark ? PRIMARY_COLOR_DARK : PRIMARY_COLOR_LIGHT;
-    const ImU32 handle_border_clr = m_is_dark ? BACKGROUND_COLOR_DARK : BACKGROUND_COLOR_LIGHT;
+    const ImU32 white_bg = preview_color(MD3::Role::SurfaceContainerLow, m_is_dark);
+    const ImU32 handle_clr = preview_color(MD3::Role::Primary, m_is_dark);
+    const ImU32 handle_border_clr = preview_color(MD3::Role::Surface, m_is_dark);
 
     // calculate groove size
     const ImVec2 groove_start = ImVec2(pos.x + handle_dummy_width, pos.y + size.y - ONE_LAYER_MARGIN.y * m_scale - ONE_LAYER_BUTTON_SIZE.y * m_scale * 0.5f - GROOVE_WIDTH * m_scale * 0.5f);
@@ -555,13 +555,15 @@ void IMSlider::draw_colored_band(const ImRect& groove, const ImRect& slideable_r
 
     auto draw_band = [this](const ImU32& clr, const ImRect& band_rc)
     {
-        if (clr == (m_is_dark ? BACKGROUND_COLOR_DARK : BACKGROUND_COLOR_LIGHT)) {
+        const ImU32 background = preview_color(MD3::Role::SurfaceContainerLow, m_is_dark);
+        const ImU32 groove_color = preview_color(MD3::Role::OutlineVariant, m_is_dark);
+        if (clr == background) {
             ImRect rc = band_rc;
             rc.Min += ImVec2(1, 1) * m_scale;
             rc.Max -= ImVec2(1, 1) * m_scale;
-            ImGui::RenderFrame(band_rc.Min, band_rc.Max, m_is_dark ? GROOVE_COLOR_DARK : GROOVE_COLOR_LIGHT, false, band_rc.GetWidth() * 0.5);
+            ImGui::RenderFrame(band_rc.Min, band_rc.Max, groove_color, false, band_rc.GetWidth() * 0.5);
             //cover round corner
-            ImGui::RenderFrame(ImVec2(band_rc.Min.x, band_rc.Max.y - band_rc.GetWidth() * 0.5), band_rc.Max, m_is_dark ? GROOVE_COLOR_DARK : GROOVE_COLOR_LIGHT, false);
+            ImGui::RenderFrame(ImVec2(band_rc.Min.x, band_rc.Max.y - band_rc.GetWidth() * 0.5), band_rc.Max, groove_color, false);
 
             ImGui::RenderFrame(rc.Min, rc.Max, clr, false, rc.GetWidth() * 0.5);
             //cover round corner
@@ -574,11 +576,13 @@ void IMSlider::draw_colored_band(const ImRect& groove, const ImRect& slideable_r
         }
     };
     auto draw_main_band = [&main_band, this](const ImU32& clr) {
-        if (clr == (m_is_dark ? BACKGROUND_COLOR_DARK : BACKGROUND_COLOR_LIGHT)) {
+        const ImU32 background = preview_color(MD3::Role::SurfaceContainerLow, m_is_dark);
+        const ImU32 groove_color = preview_color(MD3::Role::OutlineVariant, m_is_dark);
+        if (clr == background) {
             ImRect rc = main_band;
             rc.Min += ImVec2(1, 1) * m_scale;
             rc.Max -= ImVec2(1, 1) * m_scale;
-            ImGui::RenderFrame(main_band.Min, main_band.Max, m_is_dark ? GROOVE_COLOR_DARK : GROOVE_COLOR_LIGHT, false, main_band.GetWidth() * 0.5);
+            ImGui::RenderFrame(main_band.Min, main_band.Max, groove_color, false, main_band.GetWidth() * 0.5);
             ImGui::RenderFrame(rc.Min, rc.Max, clr, false, rc.GetWidth() * 0.5);
         }
         else {
@@ -673,7 +677,7 @@ void IMSlider::draw_ticks(const ImRect& slideable_region) {
     ImVec2 icon_size     = ImVec2(14.0f, 14.0f) * m_scale;
 
     const ImU32 tick_clr = IM_COL32(144, 144, 144, 255);
-    const ImU32 tick_hover_box_clr = m_is_dark ? IM_COL32(65, 65, 71, 255) : IM_COL32(219, 253, 231, 255);
+    const ImU32 tick_hover_box_clr = preview_color(MD3::Role::PrimaryContainer, m_is_dark);
 
     auto get_tick_pos = [this, slideable_region](int tick)
     {
@@ -854,9 +858,9 @@ bool IMSlider::vertical_slider(const char* str_id, int* higher_value, int* lower
     ImVec2 text_content_size;
     ImVec2 text_size;
 
-    const ImU32 white_bg = m_is_dark ? BACKGROUND_COLOR_DARK : BACKGROUND_COLOR_LIGHT;
-    const ImU32 handle_clr = m_is_dark ? PRIMARY_COLOR_DARK : PRIMARY_COLOR_LIGHT;
-    const ImU32 handle_border_clr = m_is_dark ? BACKGROUND_COLOR_DARK : BACKGROUND_COLOR_LIGHT;
+    const ImU32 white_bg = preview_color(MD3::Role::SurfaceContainerLow, m_is_dark);
+    const ImU32 handle_clr = preview_color(MD3::Role::Primary, m_is_dark);
+    const ImU32 handle_border_clr = preview_color(MD3::Role::Surface, m_is_dark);
     // calculate slider groove size
     const ImVec2 groove_start = ImVec2(pos.x + size.x - ONE_LAYER_MARGIN.x * m_scale - ONE_LAYER_BUTTON_SIZE.x * m_scale * 0.5f - GROOVE_WIDTH * m_scale * 0.5f, pos.y + text_dummy_height);
     const ImVec2 groove_size = ImVec2(GROOVE_WIDTH * m_scale, size.y - 2 * text_dummy_height);
@@ -1055,7 +1059,7 @@ bool IMSlider::render(int canvas_width, int canvas_height)
     ImGui::PushStyleVar(ImGuiStyleVar_::ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_::ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_::ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-    ImGui::PushStyleColor(ImGuiCol_::ImGuiCol_Text, ImVec4(0, 0.682f, 0.259f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_::ImGuiCol_Text, preview_color(MD3::Role::OnSurface, m_is_dark));
 
     int windows_flag = ImGuiWindowFlags_NoTitleBar
                        | ImGuiWindowFlags_NoCollapse
@@ -1133,7 +1137,7 @@ void IMSlider::render_input_custom_gcode(std::string custom_gcode)
     static bool set_focus = true;
 
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    imgui.push_menu_style(m_scale);
+    imgui.push_preview_menu_style(m_scale);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20, 10) * m_scale);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.f * m_scale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10, 3) * m_scale);
@@ -1197,7 +1201,7 @@ void IMSlider::render_input_custom_gcode(std::string custom_gcode)
     }
     ImGui::PopStyleVar(4);
     ImGui::PopStyleColor();
-    imgui.pop_menu_style();
+    imgui.pop_preview_menu_style();
 }
 
 void IMSlider::do_go_to_layer(size_t layer_number) {
@@ -1215,7 +1219,7 @@ void IMSlider::render_go_to_layer_dialog()
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     static bool set_focus = true;
 
-    imgui.push_menu_style(m_scale);
+    imgui.push_preview_menu_style(m_scale);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20, 10) * m_scale);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.f * m_scale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10, 3) * m_scale);
@@ -1282,14 +1286,14 @@ void IMSlider::render_go_to_layer_dialog()
     }
     ImGui::PopStyleVar(4);
     ImGui::PopStyleColor();
-    imgui.pop_menu_style();
+    imgui.pop_preview_menu_style();
 }
 
 void IMSlider::render_menu() {
     if (!m_menu_enable)
         return;
 
-    ImGuiWrapper::push_menu_style(m_scale);
+    ImGuiWrapper::push_preview_menu_style(m_scale);
     ImGui::PushStyleVar(ImGuiStyleVar_::ImGuiStyleVar_ChildRounding, 4.0f * m_scale);
 
     auto tick_it = GetSelection() == ssHigher ? m_ticks.ticks.find(TickCode{ GetHigherValue() }) :
@@ -1306,7 +1310,7 @@ void IMSlider::render_menu() {
     }
 
     ImGui::PopStyleVar(1);
-    ImGuiWrapper::pop_menu_style();
+    ImGuiWrapper::pop_preview_menu_style();
 
     render_input_custom_gcode(custom_code);
     render_go_to_layer_dialog();

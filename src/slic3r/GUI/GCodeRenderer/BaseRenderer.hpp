@@ -207,6 +207,8 @@ namespace Slic3r {
             protected:
                 bool m_legend_enabled{ true };
                 float m_legend_height{ 0.0f };
+                float m_legend_width{ 0.0f };
+                bool m_legend_expanded{ false };
                 size_t m_extruders_count{ 0 };
                 std::vector<ExtrusionRole> m_roles;
                 float m_max_print_height{ 0.0f };

@@ -6,11 +6,12 @@
 #include <wx/simplebook.h>
 #include <wx/icon.h>
 #include <wx/sizer.h>
+#include <wx/stattext.h>
 #include <wx/menu.h>
 #include <wx/progdlg.h>
 #include <wx/textentry.h>
 #include <wx/tooltip.h>
-//#include <wx/glcanvas.h>
+#include <wx/glcanvas.h>
 #include <wx/filename.h>
 #include <wx/debug.h>
 
@@ -38,6 +39,7 @@
 #include "I18N.hpp"
 #include "GLCanvas3D.hpp"
 #include "Plater.hpp"
+#include "ProjectHistoryDialog.hpp"
 #include "WebViewDialog.hpp"
 #include "../Utils/Process.hpp"
 #include "format.hpp"
@@ -45,11 +47,14 @@
 #include "PartPlate.hpp"
 #include "Preferences.hpp"
 #include "Widgets/ProgressDialog.hpp"
+#include "Widgets/Button.hpp"
+#include "Widgets/Label.hpp"
 #include "Widgets/StateColor.hpp"
 #include "BindDialog.hpp"
 #include "../Utils/MacDarkMode.hpp"
 
 #include <fstream>
+#include <filesystem>
 #include <string_view>
 
 #include "GUI_App.hpp"
@@ -1241,6 +1246,8 @@ void MainFrame::show_option(bool show)
         return;
 
     const bool should_show = show && m_layout == ESettingsLayout::Old;
+    if (should_show)
+        update_prepare_action_bar_content();
     if (m_prepare_action_bar->IsShown() == should_show)
         return;
 
@@ -1248,6 +1255,69 @@ void MainFrame::show_option(bool show)
     if (m_main_sizer)
         m_main_sizer->Layout();
     Layout();
+}
+
+void MainFrame::update_prepare_action_bar_content()
+{
+    if (!m_prepare_action_bar || !m_plater)
+        return;
+
+    int left_sidebar_width = 0;
+    int right_sidebar_width = 0;
+    Sidebar &sidebar = m_plater->sidebar();
+    if (!m_plater->is_sidebar_collapsed() && sidebar.IsShown()) {
+        const int sidebar_width = std::max(0, sidebar.GetSize().GetWidth());
+        if (m_plater->get_sidebar_docking_state() == Sidebar::Left)
+            left_sidebar_width = sidebar_width;
+        else if (m_plater->get_sidebar_docking_state() == Sidebar::Right)
+            right_sidebar_width = sidebar_width;
+    }
+    if (m_prepare_left_sidebar_spacer)
+        m_prepare_left_sidebar_spacer->SetMinSize(wxSize(left_sidebar_width, 0));
+    if (m_prepare_right_sidebar_spacer)
+        m_prepare_right_sidebar_spacer->SetMinSize(wxSize(right_sidebar_width, 0));
+
+    PartPlateList &plates = m_plater->get_partplate_list();
+    PartPlate *plate = plates.get_plate_count() > 0 ? plates.get_curr_plate() : nullptr;
+    if (m_prepare_plate_button) {
+        if (plate) {
+            const wxString plate_label = plate->get_plate_name().empty()
+                ? wxString::Format(_L("Plate %d"), plates.get_curr_plate_index() + 1)
+                : from_u8(plate->get_plate_name());
+            m_prepare_plate_button->SetLabel(plate_label);
+            m_prepare_plate_button->SetToolTip(plate_label);
+            m_prepare_plate_button->Enable(true);
+        } else {
+            m_prepare_plate_button->SetLabel(wxEmptyString);
+            m_prepare_plate_button->SetToolTip(wxEmptyString);
+            m_prepare_plate_button->Enable(false);
+        }
+    }
+    if (m_prepare_add_plate_button)
+        m_prepare_add_plate_button->Enable(m_plater->can_add_plate());
+
+    if (m_prepare_estimate_label) {
+        wxString estimate = _L("Not sliced");
+        if (plate && plate->is_slice_result_valid()) {
+            if (GCodeProcessorResult *result = plate->get_slice_result(); result != nullptr && !result->print_statistics.modes.empty()) {
+                const float seconds = result->print_statistics.modes.front().time;
+                const double grams = plate->fff_print() != nullptr
+                    ? plate->fff_print()->print_statistics().total_weight
+                    : 0.0;
+                if (seconds > 0.0f) {
+                    estimate = from_u8(short_time(get_time_dhms(seconds)));
+                    if (grams > 0.0)
+                        estimate += wxString::Format("\n%.1f g", grams);
+                }
+            }
+        }
+        m_prepare_estimate_label->SetLabel(estimate);
+    }
+
+    if (wxSizer *sizer = m_prepare_action_bar->GetSizer())
+        sizer->Layout();
+    m_prepare_action_bar->Layout();
+    m_prepare_action_bar->Refresh(false);
 }
 
 void MainFrame::update_prepare_action_bar_style()
@@ -1271,14 +1341,46 @@ void MainFrame::update_prepare_action_bar_style()
         split_line_icon->SetMinSize(wxSize(FromDIP(3), FromDIP(22)));
     }
 
+    if (m_prepare_plate_button) {
+        const wxColour primary = StateColor::semantic(MD3::Role::Primary);
+        const StateColor background(
+            std::pair{StateColor::semantic(MD3::Role::PrimaryContainer), (int) StateColor::Hovered},
+            std::pair{StateColor::semantic(MD3::Role::SurfaceContainerLowest), (int) StateColor::Normal});
+        m_prepare_plate_button->SetBackgroundColor(background);
+        m_prepare_plate_button->SetBorderColor(StateColor(primary));
+        m_prepare_plate_button->SetTextColor(StateColor(primary));
+        m_prepare_plate_button->SetCornerRadius(FromDIP(10));
+        m_prepare_plate_button->SetMinSize(FromDIP(wxSize(96, 40)));
+        m_prepare_plate_button->Rescale();
+    }
+    if (m_prepare_add_plate_button) {
+        const StateColor background(
+            std::pair{StateColor::semantic(MD3::Role::SurfaceContainerHigh), (int) StateColor::Hovered},
+            std::pair{StateColor::semantic(MD3::Role::SurfaceContainerLowest), (int) StateColor::Normal});
+        m_prepare_add_plate_button->SetBackgroundColor(background);
+        m_prepare_add_plate_button->SetBorderColor(StateColor(StateColor::semantic(MD3::Role::Outline)));
+        m_prepare_add_plate_button->SetTextColor(StateColor(StateColor::semantic(MD3::Role::OnSurface)));
+        m_prepare_add_plate_button->SetCornerRadius(FromDIP(10));
+        m_prepare_add_plate_button->SetMinSize(FromDIP(wxSize(40, 40)));
+        m_prepare_add_plate_button->Rescale();
+    }
+    if (m_prepare_estimate_label) {
+        m_prepare_estimate_label->SetFont(::Label::Body_12);
+        m_prepare_estimate_label->SetForegroundColour(StateColor::semantic(MD3::Role::OnSurfaceVariant));
+        m_prepare_estimate_label->SetMinSize(FromDIP(wxSize(118, 36)));
+    }
+
     // wxSizer borders are pixel values, so refresh the horizontal inset when
     // the window crosses monitors with different DPI scales.
     if (wxSizer* sizer = m_prepare_action_bar->GetSizer()) {
-        if (wxSizerItem* content = sizer->GetItem(static_cast<size_t>(1)))
-            content->SetBorder(FromDIP(MD3::Metrics::comfortable.padding));
+        if (wxSizerItem* content = sizer->GetItem(static_cast<size_t>(1)); content && content->GetSizer()) {
+            if (wxSizerItem *actions = content->GetSizer()->GetItem(static_cast<size_t>(1)))
+                actions->SetBorder(FromDIP(MD3::Metrics::comfortable.padding));
+        }
         sizer->Layout();
     }
 
+    update_prepare_action_bar_content();
     m_prepare_action_bar->Refresh(false);
     m_prepare_action_bar_divider->Refresh(false);
 }
@@ -1293,8 +1395,13 @@ void MainFrame::init_tabpanel()
     m_side_tools = create_side_tools(m_prepare_action_bar);
 
     auto* action_bar_sizer = new wxBoxSizer(wxVERTICAL);
+    auto* action_row_sizer = new wxBoxSizer(wxHORIZONTAL);
+    m_prepare_left_sidebar_spacer = action_row_sizer->Add(0, 0, 0);
+    action_row_sizer->Add(m_side_tools, 1, wxEXPAND | wxLEFT | wxRIGHT,
+                          FromDIP(MD3::Metrics::comfortable.padding));
+    m_prepare_right_sidebar_spacer = action_row_sizer->Add(0, 0, 0);
     action_bar_sizer->Add(m_prepare_action_bar_divider, 0, wxEXPAND);
-    action_bar_sizer->Add(m_side_tools, 1, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(MD3::Metrics::comfortable.padding));
+    action_bar_sizer->Add(action_row_sizer, 1, wxEXPAND);
     m_prepare_action_bar->SetSizer(action_bar_sizer);
     update_prepare_action_bar_style();
     m_prepare_action_bar->Hide();
@@ -1420,6 +1527,13 @@ void MainFrame::init_tabpanel()
         //BBS
         wxWindow* panel = m_tabpanel->GetCurrentPage();
         int sel = m_tabpanel->GetSelection();
+        const bool preview_page = panel == m_plater && sel == tpPreview;
+        const bool device_page = panel == m_monitor || panel == m_printer_view ||
+                                 panel == m_multi_machine || panel == m_web_device;
+        const MD3::ColorScheme navigation_scheme = preview_page
+            ? MD3::ColorScheme::Preview
+            : (device_page ? MD3::ColorScheme::Device : MD3::ColorScheme::Brand);
+        m_tabpanel->GetBtnsListCtrl()->SetColorScheme(navigation_scheme);
         //wxString page_text = m_tabpanel->GetPageText(sel);
         m_last_selected_tab = m_tabpanel->GetSelection();
         if (panel == m_plater) {
@@ -1504,6 +1618,22 @@ void MainFrame::init_tabpanel()
 
     wxGetApp().plater_ = m_plater;
 
+    // Keep the bottom action row aligned with the live docked sidebar and the
+    // selected plate without hard-coding the Material sidebar width. These
+    // events also cover sidebar collapse/restore and user resizing.
+    m_plater->sidebar().Bind(wxEVT_SIZE, [this](wxSizeEvent &event) {
+        CallAfter([this]() { update_prepare_action_bar_content(); });
+        event.Skip();
+    });
+    m_plater->sidebar().Bind(wxEVT_SHOW, [this](wxShowEvent &event) {
+        CallAfter([this]() { update_prepare_action_bar_content(); });
+        event.Skip();
+    });
+    m_plater->Bind(EVT_GLCANVAS_PLATE_SELECT, [this](SimpleEvent &event) {
+        CallAfter([this]() { update_prepare_action_bar_content(); });
+        event.Skip();
+    });
+
     create_preset_tabs();
 
         //BBS add pages
@@ -1538,6 +1668,13 @@ void MainFrame::init_tabpanel()
         m_web_device = new DeviceWebPage(m_tabpanel);
         m_tabpanel->AddPage(m_web_device, _L("Filament Manager"), std::string("tab_filament_active"), std::string("tab_filament_active"), false);
     }
+
+    // Settings is a navigation action rather than a synthetic notebook page.
+    // This preserves every established TabPosition/page index while matching
+    // the Material navigation model used by the main workspaces.
+    m_tabpanel->AddNavigationAction(_L("Settings"), "settings", []() {
+        wxGetApp().open_preferences();
+    });
 
     if (m_plater) {
         // load initial config
@@ -1755,12 +1892,63 @@ void MainFrame::save_project()
 
 bool MainFrame::save_project_as(const wxString& filename)
 {
-    bool ret = (m_plater != nullptr) ? m_plater->export_3mf(into_path(filename)) : false;
-    if (ret) {
+    if (m_plater == nullptr)
+        return false;
+    if (filename.empty())
+        return m_plater->save_project(true) == wxID_YES;
+
+    const std::filesystem::path previous_history_identity = m_plater->project_history_identity();
+    m_plater->flush_project_history_pending("Project edit before save", true, true);
+
+    // export_3mf returns a negative value on failure and a non-negative value
+    // on success. Converting it directly to bool inverted both common cases
+    // (0 became false, -1 became true).
+    const int  export_result = m_plater->export_3mf(into_path(filename));
+    const bool saved         = export_result >= 0;
+    if (saved) {
 //        wxGetApp().update_saved_preset_from_current_preset();
         m_plater->reset_project_dirty_after_save();
+        m_plater->capture_saved_project_history(filename, previous_history_identity);
     }
-    return ret;
+    return saved;
+}
+
+void MainFrame::show_project_history()
+{
+    if (m_plater == nullptr)
+        return;
+
+    // list_versions is submitted to the same serialized worker as commits.
+    // Flush and wait here so the dialog's list job is ordered after the latest
+    // completed UI edit instead of presenting a stale HEAD.
+    if (!m_plater->flush_project_history_pending("Project edit before opening version history", false, true)) {
+        MessageDialog(this, _L("Version history is waiting for the current operation to finish. Try again when it completes."),
+                      _L("Version history"), wxOK | wxICON_WARNING).ShowModal();
+        return;
+    }
+
+    ProjectHistoryDialog dialog(this, m_plater);
+    if (dialog.ShowModal() != wxID_APPLY)
+        return;
+
+    const std::filesystem::path restored_snapshot = dialog.release_restored_snapshot();
+    if (restored_snapshot.empty()) {
+        MessageDialog(this, _L("The selected project version could not be prepared."),
+                      _L("Version history"), wxOK | wxICON_WARNING).ShowModal();
+        return;
+    }
+
+    const bool restored = m_plater->restore_project_history_snapshot(restored_snapshot);
+
+    std::error_code cleanup_error;
+    std::filesystem::remove(restored_snapshot, cleanup_error);
+    cleanup_error.clear();
+    std::filesystem::remove(restored_snapshot.parent_path(), cleanup_error);
+
+    if (!restored) {
+        MessageDialog(this, _L("The selected version was not restored."),
+                      _L("Version history"), wxOK | wxICON_INFORMATION).ShowModal();
+    }
 }
 
 bool MainFrame::can_upload() const
@@ -1948,6 +2136,66 @@ wxBoxSizer* MainFrame::create_side_tools(wxWindow* parent)
     int em = em_unit();
     wxBoxSizer* sizer = new wxBoxSizer(wxHORIZONTAL);
 
+    m_prepare_plate_button = new Button(parent, _L("Plate 1"), "", wxNO_BORDER);
+    m_prepare_add_plate_button = new Button(parent, "+", "", wxNO_BORDER);
+    m_prepare_estimate_label = new wxStaticText(parent, wxID_ANY, _L("Not sliced"),
+                                                 wxDefaultPosition, wxDefaultSize, wxALIGN_RIGHT);
+
+    const wxColour primary = StateColor::semantic(MD3::Role::Primary);
+    const wxColour outline = StateColor::semantic(MD3::Role::Outline);
+    const wxColour surface = StateColor::semantic(MD3::Role::SurfaceContainerLowest);
+    const StateColor plate_background(
+        std::pair{StateColor::semantic(MD3::Role::PrimaryContainer), (int) StateColor::Hovered},
+        std::pair{surface, (int) StateColor::Normal});
+    m_prepare_plate_button->SetBackgroundColor(plate_background);
+    m_prepare_plate_button->SetBorderColor(StateColor(primary));
+    m_prepare_plate_button->SetTextColor(StateColor(primary));
+    m_prepare_plate_button->SetCornerRadius(FromDIP(10));
+    m_prepare_plate_button->SetMinSize(FromDIP(wxSize(96, 40)));
+
+    const StateColor add_background(
+        std::pair{StateColor::semantic(MD3::Role::SurfaceContainerHigh), (int) StateColor::Hovered},
+        std::pair{surface, (int) StateColor::Normal});
+    m_prepare_add_plate_button->SetBackgroundColor(add_background);
+    m_prepare_add_plate_button->SetBorderColor(StateColor(outline));
+    m_prepare_add_plate_button->SetTextColor(StateColor(StateColor::semantic(MD3::Role::OnSurface)));
+    m_prepare_add_plate_button->SetCornerRadius(FromDIP(10));
+    m_prepare_add_plate_button->SetMinSize(FromDIP(wxSize(40, 40)));
+
+    m_prepare_estimate_label->SetFont(::Label::Body_12);
+    m_prepare_estimate_label->SetForegroundColour(StateColor::semantic(MD3::Role::OnSurfaceVariant));
+    m_prepare_estimate_label->SetMinSize(FromDIP(wxSize(118, 36)));
+
+    m_prepare_plate_button->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) {
+        if (!m_plater)
+            return;
+        auto &plates = m_plater->get_partplate_list();
+        wxMenu menu;
+        std::vector<int> ids;
+        ids.reserve(plates.get_plate_count());
+        for (int index = 0; index < plates.get_plate_count(); ++index) {
+            const int id = wxWindow::NewControlId();
+            ids.push_back(id);
+            PartPlate *plate = plates.get_plate(index);
+            wxString label = plate != nullptr && !plate->get_plate_name().empty()
+                ? from_u8(plate->get_plate_name())
+                : wxString::Format(_L("Plate %d"), index + 1);
+            wxMenuItem *item = menu.AppendRadioItem(id, label);
+            item->Check(index == plates.get_curr_plate_index());
+        }
+        const int selected = m_prepare_plate_button->GetPopupMenuSelectionFromUser(menu);
+        const auto found = std::find(ids.begin(), ids.end(), selected);
+        if (found != ids.end()) {
+            m_plater->select_plate(static_cast<int>(std::distance(ids.begin(), found)));
+            update_prepare_action_bar_content();
+        }
+    });
+    m_prepare_add_plate_button->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) {
+        if (m_plater && m_plater->canvas3D() && m_plater->canvas3D()->get_wxglcanvas()) {
+            wxPostEvent(m_plater->canvas3D()->get_wxglcanvas(), SimpleEvent(EVT_GLTOOLBAR_ADD_PLATE));
+        }
+    });
+
     /*helio*/
     split_line_icon = new wxStaticBitmap(parent, wxID_ANY, create_scaled_bitmap("topbar_line", parent, 22), wxDefaultPosition, wxSize(FromDIP(3), FromDIP(22)), 0);
     expand_program_holder = new ExpandButtonHolder(parent);
@@ -2006,7 +2254,11 @@ wxBoxSizer* MainFrame::create_side_tools(wxWindow* parent)
     update_side_button_style();
     m_slice_option_btn->Enable();
     m_print_option_btn->Enable();
-    sizer->Add( 0, 0, 1, wxEXPAND, 0);
+    sizer->Add(m_prepare_plate_button, 0, wxALIGN_CENTER_VERTICAL);
+    sizer->Add(FromDIP(8), 0, 0, 0, 0);
+    sizer->Add(m_prepare_add_plate_button, 0, wxALIGN_CENTER_VERTICAL);
+    sizer->Add(0, 0, 1, wxEXPAND, 0);
+    sizer->Add(m_prepare_estimate_label, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(12));
     sizer->Add(expand_program_holder, 0, wxALIGN_CENTER, 0);
     sizer->Add(FromDIP(4), 0, 0, 0, 0);
     sizer->Add(split_line_icon, 0, wxALIGN_CENTER, 0);
@@ -2634,6 +2886,8 @@ void MainFrame::update_slice_print_status(SlicePrintEventType event, bool can_sl
     if (!old_slice_status && enable_slice)
         m_plater->stop_helio_process();
         m_plater->reset_check_status();
+
+    update_prepare_action_bar_content();
 }
 
 
@@ -2980,6 +3234,12 @@ void MainFrame::init_menubar_as_editor()
 #endif
 
 
+        append_menu_item(fileMenu, wxID_ANY, _L("Version history") + dots,
+            _L("Browse and restore local Git-backed project versions"),
+            [this](wxCommandEvent&) { show_project_history(); }, "", nullptr,
+            [this](){return m_plater != nullptr; }, this);
+
+
         fileMenu->AppendSeparator();
 
         // BBS
@@ -3270,6 +3530,35 @@ void MainFrame::init_menubar_as_editor()
 
     // BBS
 
+    // Object-specific commands are also surfaced as their own top-level menu in
+    // the Material title bar.  Keep the established Plater actions and update-UI
+    // predicates so keyboard shortcuts and selection state behave exactly as in
+    // the existing Edit menu.
+    wxMenu* objectsMenu = nullptr;
+    if (m_plater != nullptr) {
+        objectsMenu = new wxMenu();
+        append_menu_item(objectsMenu, wxID_ANY, _L("Add model") + dots, _L("Load a model"),
+            [this](wxCommandEvent&) { m_plater->add_file(); }, "menu_import", nullptr,
+            [this]() { return can_add_models(); }, this);
+        objectsMenu->AppendSeparator();
+        append_menu_item(objectsMenu, wxID_ANY, _L("Clone selected"), _L("Clone copies of selections"),
+            [this](wxCommandEvent&) { m_plater->clone_selection(); }, "menu_copy", nullptr,
+            [this]() { return can_clone(); }, this);
+        append_menu_item(objectsMenu, wxID_ANY, _L("Delete selected"), _L("Deletes the current selection"),
+            [this](wxCommandEvent&) { m_plater->remove_selected(); }, "menu_remove", nullptr,
+            [this]() { return can_delete(); }, this);
+        append_menu_item(objectsMenu, wxID_ANY, _L("Delete all"), _L("Deletes all objects"),
+            [this](wxCommandEvent&) { m_plater->delete_all_objects_from_model(); }, "menu_remove", nullptr,
+            [this]() { return can_delete_all(); }, this);
+        objectsMenu->AppendSeparator();
+        append_menu_item(objectsMenu, wxID_ANY, _L("Select all"), _L("Selects all objects"),
+            [this](wxCommandEvent&) { m_plater->select_all(); }, "", nullptr,
+            [this]() { return can_select(); }, this);
+        append_menu_item(objectsMenu, wxID_ANY, _L("Deselect all"), _L("Deselects all objects"),
+            [this](wxCommandEvent&) { m_plater->deselect_all(); }, "", nullptr,
+            [this]() { return can_deselect(); }, this);
+    }
+
     //publish menu
 
     /*if (m_plater) {
@@ -3376,7 +3665,6 @@ void MainFrame::init_menubar_as_editor()
         //    }, this);
     }
 
-    wxWindowID config_id_base = wxWindow::NewControlId(int(ConfigMenuCnt));
     //TODO remove
     //auto config_wizard_name = _(ConfigWizard::name(true) + "(Debug)");
     //const auto config_wizard_tooltip = from_u8((boost::format(_utf8(L("Run %s"))) % config_wizard_name).str());
@@ -3393,10 +3681,6 @@ void MainFrame::init_menubar_as_editor()
             L("Show All"),
             L("Quit BambuStudio")
         };
-#else
-    wxMenu* parent_menu = m_topbar->GetTopMenu();
-    auto preference_item = new wxMenuItem(parent_menu, ConfigMenuPreferences + config_id_base, _L("Preferences") + "\t" + ctrl + "P", "");
-
 #endif
     //auto printer_item = new wxMenuItem(parent_menu, ConfigMenuPrinter + config_id_base, _L("Printer"), "");
     //auto language_item = new wxMenuItem(parent_menu, ConfigMenuLanguage + config_id_base, _L("Switch Language"), "");
@@ -3522,40 +3806,34 @@ void MainFrame::init_menubar_as_editor()
     auto helpMenu = generate_help_menu();
 
 #ifndef __APPLE__
-    m_topbar->SetFileMenu(fileMenu);
-    if (editMenu)
-        m_topbar->AddDropDownSubMenu(editMenu, _L("Edit"));
-    if (viewMenu)
-        m_topbar->AddDropDownSubMenu(viewMenu, _L("View"));
-    //BBS add Preference
-
-    append_menu_item(
-        m_topbar->GetTopMenu(), wxID_ANY, _L("Preferences") + "\t" + ctrl + "P", "",
-        [this](wxCommandEvent &) {
-            PreferencesDialog dlg(this);
-            dlg.ShowModal();
+    // Preferences remains an ordinary menu item; only the menu presentation
+    // moved from the legacy catch-all dropdown to the top-level Edit control.
+    if (editMenu) {
+        editMenu->AppendSeparator();
+        append_menu_item(
+            editMenu, wxID_ANY, _L("Preferences") + "\t" + ctrl + "P", "",
+            [this](wxCommandEvent &) {
+                PreferencesDialog dlg(this);
+                dlg.ShowModal();
 #if ENABLE_GCODE_LINES_ID_IN_H_SLIDER
-            if (dlg.seq_top_layer_only_changed() || dlg.seq_seq_top_gcode_indices_changed())
+                if (dlg.seq_top_layer_only_changed() || dlg.seq_seq_top_gcode_indices_changed())
 #else
-            if (dlg.seq_top_layer_only_changed())
+                if (dlg.seq_top_layer_only_changed())
 #endif
-                plater()->refresh_print();
+                    plater()->refresh_print();
 
-            // Refresh recent list if time format changed
-            if (dlg.use_12h_time_format_changed() && m_webview) {
-                wxGetApp().CallAfter([this]() {
-                    if (m_webview) {
-                        m_webview->SendRecentList(-1);
-                    }
-                });
-            }
-        },
-        "", nullptr, []() { return true; }, this);
-    //m_topbar->AddDropDownMenuItem(preference_item);
-    //m_topbar->AddDropDownMenuItem(printer_item);
-    //m_topbar->AddDropDownMenuItem(language_item);
-    //m_topbar->AddDropDownMenuItem(config_item);
-    m_topbar->AddDropDownSubMenu(helpMenu, _L("Help"));
+                // Refresh recent list if time format changed.
+                if (dlg.use_12h_time_format_changed() && m_webview) {
+                    wxGetApp().CallAfter([this]() {
+                        if (m_webview)
+                            m_webview->SendRecentList(-1);
+                    });
+                }
+            },
+            "", nullptr, []() { return true; }, this);
+    }
+
+    m_topbar->SetTopMenus(fileMenu, editMenu, viewMenu, objectsMenu, helpMenu);
 
      // OrcaSlicer calibrations
     {
@@ -3641,6 +3919,8 @@ void MainFrame::init_menubar_as_editor()
         m_menubar->Append(editMenu, wxString::Format("&%s", _L("Edit")));
     if (viewMenu)
         m_menubar->Append(viewMenu, wxString::Format("&%s", _L("View")));
+    if (objectsMenu)
+        m_menubar->Append(objectsMenu, wxString::Format("&%s", _L("Objects")));
     //if (publishMenu)
     //    m_menubar->Append(publishMenu, wxString::Format("&%s", _L("3D Models")));
 

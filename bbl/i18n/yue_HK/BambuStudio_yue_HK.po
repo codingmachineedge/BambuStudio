@@ -467,6 +467,86 @@ msgstr "匯出結果"
 msgid "Import result"
 msgstr "匯入結果"
 
+#. reviewed-category: file-actions
+msgid "Version history"
+msgstr "版本記錄"
+
+#. reviewed-category: file-actions
+msgid "Browse complete project snapshots saved automatically in a private local Git repository."
+msgstr "瀏覽自動儲存喺私人本機 Git 儲存庫嘅完整項目快照。"
+
+#. reviewed-category: file-actions
+msgid "Untitled project"
+msgstr "未命名項目"
+
+#. reviewed-category: file-actions
+msgid "Project: %s"
+msgstr "項目：%s"
+
+#. reviewed-category: file-actions
+msgid "Commit"
+msgstr "提交"
+
+#. reviewed-category: file-actions
+msgid "Message"
+msgstr "訊息"
+
+#. reviewed-category: file-actions
+msgid "Time"
+msgstr "時間"
+
+#. reviewed-category: file-actions
+msgid "Size"
+msgstr "大小"
+
+#. reviewed-category: file-actions
+msgid "Restore selected"
+msgstr "還原所選版本"
+
+#. reviewed-category: file-actions
+msgid "Loading versions..."
+msgstr "載入緊版本..."
+
+#. reviewed-category: file-actions
+msgid "Load all versions"
+msgstr "載入全部版本"
+
+#. reviewed-category: file-actions
+msgid "Showing the newest %d versions. Load all versions to browse older history."
+msgstr "目前顯示最新 %d 個版本。載入全部版本即可瀏覽較舊記錄。"
+
+#. reviewed-category: file-actions
+msgid "Restore project version"
+msgstr "還原項目版本"
+
+#. reviewed-category: file-actions
+msgid "Preparing selected version..."
+msgstr "準備緊所選版本..."
+
+#. reviewed-category: file-actions
+msgid "%d versions saved on this device"
+msgstr "呢部裝置已儲存 %d 個版本"
+
+#. reviewed-category: file-actions
+msgid "No versions yet. A version is created automatically after completed edits and project saves."
+msgstr "目前未有版本。完成編輯或儲存項目後，系統會自動建立版本。"
+
+#. reviewed-category: file-actions
+msgid "Selected commit: "
+msgstr "已選取提交："
+
+#. reviewed-category: file-actions
+msgid "Unknown time"
+msgstr "時間不明"
+
+#. reviewed-category: file-actions
+msgid "Project snapshot"
+msgstr "項目快照"
+
+#. reviewed-category: file-actions
+msgid "Browse and restore local Git-backed project versions"
+msgstr "瀏覽及還原由本機 Git 管理嘅項目版本"
+
 #. reviewed-category: slicing-printing
 msgid "Slice plate"
 msgstr "切片目前列印板"
@@ -978,3 +1058,69 @@ msgstr "部分預設已有變更。"
 #. reviewed-category: destructive-dirty-error-security
 msgid "The project is no longer available."
 msgstr "此項目已不可用。"
+
+#. reviewed-category: destructive-dirty-error-security
+msgid "Restoring adds a new version. It never overwrites the project file or rewinds Git history."
+msgstr "還原操作會新增一個版本，絕不會覆寫項目檔案，亦不會倒轉 Git 記錄。"
+
+#. reviewed-category: destructive-dirty-error-security
+msgid "Version history is unavailable because its local repository could not be initialized."
+msgstr "由於無法初始化本機儲存庫，版本記錄目前不可用。"
+
+#. reviewed-category: destructive-dirty-error-security
+msgid "Version history is unavailable for this project."
+msgstr "此項目的版本記錄目前不可用。"
+
+#. reviewed-category: destructive-dirty-error-security
+msgid "Project history could not save the latest edit. The app will retry automatically."
+msgstr "項目版本記錄未能儲存最新修改。應用程式會自動重試。"
+
+#. reviewed-category: destructive-dirty-error-security
+msgid "Project history could not save the latest edit. Its recovery snapshot was kept on this device."
+msgstr "項目版本記錄未能儲存最新修改。復原快照已保留喺呢部裝置。"
+
+#. reviewed-category: destructive-dirty-error-security
+msgid "The latest edit could not be added to version history. Its recovery snapshot was kept on this device."
+msgstr "未能將最新修改加入版本記錄。復原快照已保留喺呢部裝置。"
+
+#. reviewed-category: destructive-dirty-error-security
+msgid "Version history is waiting for the current operation to finish. Try again when it completes."
+msgstr "版本記錄正等候目前操作完成。完成後請再試。"
+
+#. reviewed-category: destructive-dirty-error-security
+msgid "Could not load version history: %s"
+msgstr "無法載入版本記錄：%s"
+
+#. reviewed-category: destructive-dirty-error-security
+msgid "Could not load version history."
+msgstr "無法載入版本記錄。"
+
+#. reviewed-category: destructive-dirty-error-security
+msgid ""
+"Restore the selected version in the editor?\n"
+"\n"
+"The project file will not be overwritten. The restored state will be recorded as a new version."
+msgstr ""
+"要喺編輯器還原所選版本嗎？\n"
+"\n"
+"項目檔案不會被覆寫。還原後的狀態會記錄為新版本。"
+
+#. reviewed-category: destructive-dirty-error-security
+msgid "Could not create a secure temporary location for the restored project."
+msgstr "無法為還原後的項目建立安全暫存位置。"
+
+#. reviewed-category: destructive-dirty-error-security
+msgid "Could not restore the selected version: %s"
+msgstr "無法還原所選版本：%s"
+
+#. reviewed-category: destructive-dirty-error-security
+msgid "Could not restore the selected version."
+msgstr "無法還原所選版本。"
+
+#. reviewed-category: destructive-dirty-error-security
+msgid "The selected project version could not be prepared."
+msgstr "無法準備所選項目版本。"
+
+#. reviewed-category: destructive-dirty-error-security
+msgid "The selected version was not restored."
+msgstr "所選版本未能還原。"

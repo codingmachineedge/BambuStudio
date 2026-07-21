@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <vector>
+#include <filesystem>
 #include <boost/filesystem/path.hpp>
 
 #include <wx/panel.h>
@@ -49,6 +50,7 @@ enum class ModelObjectCutAttribute : int;
 using ModelObjectCutAttributes = enum_bitmask<ModelObjectCutAttribute>;
 class ModelInstance;
 class Print;
+class ProjectHistoryManager;
 class SLAPrint;
 //BBS: add partplatelist and SlicingStatusEvent
 class PartPlateList;
@@ -359,7 +361,8 @@ public:
     void reset_flags_when_new_or_close_project();
     int new_project(bool skip_confirm = false, bool silent = false, const wxString &project_name = wxString());
     // BBS: save & backup
-    int load_project(wxString const & filename = "", wxString const & originfile = "-");
+    int load_project(wxString const & filename = "", wxString const & originfile = "-",
+                     bool *load_succeeded = nullptr, bool skip_close_confirmation = false);
     int save_project(bool saveAs = false);
     //BBS download project by project id
     void import_model_id(wxString download_info);
@@ -425,9 +428,13 @@ public:
     static wxString get_slice_warning_string(GCodeProcessorResult::SliceWarning& warning);
 
     // BBS: restore
-    std::vector<size_t> load_files(const std::vector<boost::filesystem::path>& input_files, LoadStrategy strategy = LoadStrategy::LoadModel | LoadStrategy::LoadConfig,  bool ask_multi = false);
+    std::vector<size_t> load_files(const std::vector<boost::filesystem::path>& input_files,
+                                   LoadStrategy strategy = LoadStrategy::LoadModel | LoadStrategy::LoadConfig,
+                                   bool ask_multi = false, bool *successful_3mf_loaded = nullptr);
     // To be called when providing a list of files to the GUI slic3r on command line.
-    std::vector<size_t> load_files(const std::vector<std::string>& input_files, LoadStrategy strategy = LoadStrategy::LoadModel | LoadStrategy::LoadConfig,  bool ask_multi = false);
+    std::vector<size_t> load_files(const std::vector<std::string>& input_files,
+                                   LoadStrategy strategy = LoadStrategy::LoadModel | LoadStrategy::LoadConfig,
+                                   bool ask_multi = false, bool *successful_3mf_loaded = nullptr);
     // to be called on drag and drop
     bool emboss_svg(const wxString &svg_file, bool from_toolbar_or_file_menu = false);
     bool load_svg(const wxArrayString &filenames, bool from_toolbar_or_file_menu = false);
@@ -481,7 +488,9 @@ public:
     void deselect_all();
     void exit_gizmo();
     void remove(size_t obj_idx);
-    void reset(bool apply_presets_change = false);
+    // Returns false without replacing the live document when its preceding
+    // project-history boundary cannot be made durable.
+    bool reset(bool apply_presets_change = false);
     void reset_with_confirm();
     //BBS: return int for various result
     int close_with_confirm(std::function<bool(bool yes_or_no)> second_check = nullptr); // BBS close project
@@ -637,6 +646,18 @@ public:
     wxString get_project_filename(const wxString& extension = wxEmptyString) const;
     wxString get_export_gcode_filename(const wxString& extension = wxEmptyString, bool only_filename = false, bool export_all = false) const;
     void set_project_filename(const wxString& filename);
+    // The history manager owns isolated bare Git repositories below
+    // data_dir()/project_history. The identity is the saved project path or a
+    // stable synthetic .3mf path for the lifetime of an untitled session.
+    Slic3r::ProjectHistoryManager *project_history_manager();
+    std::filesystem::path          project_history_identity() const;
+    void                           capture_project_history_now(const std::string &reason);
+    void                           capture_saved_project_history(const wxString &completed_project_path,
+                                                                 const std::filesystem::path &previous_identity);
+    bool                           flush_project_history_pending(const std::string &fallback_reason,
+                                                                 bool stop_active_jobs = false,
+                                                                 bool wait_for_commits = true);
+    bool                           restore_project_history_snapshot(const std::filesystem::path &restored_snapshot);
     void update_print_error_info(int code, std::string msg, std::string extra);
 
     bool is_export_gcode_scheduled() const;
