@@ -99,16 +99,30 @@ retention/pruning policy.
 - ~~Push local `master` (`8d727d49d`) and obtain a hosted CI run~~ — done; verified by green run
   `29877040307` and published release `md3-windows-v02.08.01.55-r37`.
 - ~~Achieve a fully green publish run~~ — done; same run and release as above.
-- **In progress (multi-agent waves, 2026-07-21/22):** the structural component anatomy from the
-  audit — camera-HUD overlay for the Device camera card, Material Symbols icon-font infrastructure
-  (font asset already pushed in `a29f629c0`), remaining feature-level pill-geometry variants, the
-  three retained bitmap-bound theme literals, and Cantonese strings for the new surfaces. Each wave
-  is committed and pushed to `master` as it completes. Scope detail: the shared Widgets pills are
-  already done and DPI-safe via `MD3::Metrics::pill_radius(height)`; the remaining pill variants are
-  feature-level (chips, search-field, settings nav-item). The three retained theme literals are
-  anchored in `docs/features/design-system/md3-design-system.md` (assembly-tree delete badge over
-  `cross_dark.svg`; Helio header banner over `helio_icon`) and become resolvable once the icon-font
-  infrastructure can tint glyphs from tokens.
+- **Structural-anatomy waves implemented (multi-agent session, 2026-07-21/22).** All four waves are
+  written and committed on the build worktree branch:
+  - `ae690fa85` (pushed) — Cantonese strings for the model-preview and Prepare-dock surfaces:
+    yue_HK + English catalogs, rebuilt `.mo`, refreshed `coverage.json`, and new
+    `language_mode_tests` assertions for standalone-Cantonese and bilingual modes.
+  - `c4417d883` — Material Symbols icon-font infrastructure: private registration of the bundled
+    TTF in `Label::initSysFont`, the `MaterialIcon` helper (28 cmap-verified PUA glyphs,
+    availability probe, font factory, wxDC draw/measure, antialiased bitmap producer), CMake
+    wiring, and an AxisCtrlButton proving site with bitmap fallback. Only the default
+    Outlined/wght400/FILL0 instance renders through wxFont; active state is expressed via colour.
+  - `be90ec1f0` — Device camera-HUD strip per the kit camera-card anatomy: always-dark `CameraHUD`
+    band with a visibility-aware pulsing LIVE badge (`MD3::Viewport::live`), migrated status
+    indicators pinned to on-dark bitmaps, and icon-font settings/fullscreen chips preserving the
+    old CameraItem event wiring. Sizer sibling above the video — nothing overlays the native
+    `wxMediaCtrl` HWND.
+  - `f9005d609` — pill/literals closure: `MD3::Metrics::pill_radius(height)`; verified the shared
+    Widgets pills are already DPI-safe (`applyMD3Style`/`Rescale`); each residual bitmap-bound
+    theme literal is anchored and justified in `docs/features/design-system/md3-design-system.md`
+    rather than unsafely tokenized.
+  The three C++ commits are gated on the local incremental Release build now running; they are
+  pushed the moment it passes. Twelve Opus agents (plan → implement → 3-lens adversarial review →
+  fix) produced them; the review's one blocker (wxBitmapBundle absent from the vendored wx 3.1.5)
+  is already fixed. Known follow-up: the HUD's `_L("LIVE")` badge string still needs catalog
+  entries (en identity, yue_HK) and a `.mo` rebuild.
 - Capture and review fresh full-compositor screenshots of the fully token-migrated native surfaces
   and replace the pre-sweep captures above.
 - Repair/re-enable the aggregate and `libnest2d_tests` suites instead of relying on the focused waiver.
