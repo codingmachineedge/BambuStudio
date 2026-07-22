@@ -1164,3 +1164,7 @@ msgstr "上"
 #. reviewed-category: preferences
 msgid "Bottom"
 msgstr "下"
+
+#. reviewed-category: connection-offline
+msgid "LIVE"
+msgstr "直播中"

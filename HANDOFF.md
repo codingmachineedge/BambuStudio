@@ -125,8 +125,19 @@ retention/pruning policy.
   produced them; the review's one blocker (wxBitmapBundle absent from the vendored wx 3.1.5) was
   fixed before commit. Hosted CI runs for these pushes were in progress at the time of writing; the
   local gate did not build the test binaries, so `language_mode_tests` for the new Cantonese
-  assertions is proven by CI, not locally. Known follow-up: the HUD's `_L("LIVE")` badge string
-  still needs catalog entries (en identity, yue_HK) and a `.mo` rebuild.
+  assertions is proven by CI, not locally. The LIVE-badge follow-up is closed: "LIVE" is in the
+  en catalog, yue_HK renders it 直播中 (connection-offline category), coverage.json counts 288,
+  the shipped `.mo` was rebuilt with `bbl/i18n/yue_HK/compile_translation.py` and its `--check`
+  reproducibility gate passes locally, and `language_mode_tests` asserts the key in standalone
+  and bilingual modes. A scoped audit confirmed no other string from the wave commits is missing
+  catalog entries.
+  **Next program (in flight): full MD3 conformance.** The user has mandated that the entire UI
+  match `ui-md3/design-system/` with zero original design elements (functional data colors
+  exempt). A 10-surface Opus audit is generating
+  `docs/features/design-system/md3-parity-register.md` — the canonical open-gap register and
+  wave plan; implementation proceeds register-wave by register-wave (each build-gated and pushed),
+  folding in the already-scoped feature-pill (CapsuleButton 5px→pill, Tab search field 5px→pill),
+  camera-HUD temp-chip, and project-history durable-retry slices.
 - Capture and review fresh full-compositor screenshots of the fully token-migrated native surfaces
   and replace the pre-sweep captures above.
 - Repair/re-enable the aggregate and `libnest2d_tests` suites instead of relying on the focused waiver.

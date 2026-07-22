@@ -18207,6 +18207,9 @@ msgstr ""
 msgid "Dock the Prepare panel on the left, right, top, or bottom of the workspace."
 msgstr ""
 
+msgid "LIVE"
+msgstr ""
+
 #~ msgid "Second"
 #~ msgstr "Second"
 
