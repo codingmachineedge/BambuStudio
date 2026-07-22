@@ -4,7 +4,9 @@
 #include "GUI_Utils.hpp"
 #include "MultiMachine.hpp"
 
-namespace Slic3r { 
+class SearchField;
+
+namespace Slic3r {
 namespace GUI {
 
 #define DEVICE_LEFT_PADDING_LEFT 15
@@ -14,9 +16,10 @@ namespace GUI {
 
 // MD3 device-farm card grid (ui-md3 Multi.jsx): each MultiMachineItem is a
 // responsive Card, not a full-width list row. Cards are laid out in a wxWrapSizer
-// so the grid reflows/wraps to the available width. Width is sized so ~3 cards
-// fit the fixed DEVICE_ITEM_MAX_WIDTH farm viewport; DEVICE_CARD_GAP is the
-// half-gutter (applied as a wxALL border, so the visible gutter is 2x this).
+// whose scroll host now expands fluidly (wxEXPAND) instead of being pinned to the
+// fixed DEVICE_ITEM_MAX_WIDTH strip, so the grid reflows/wraps to the actual
+// available width (fewer cards per row as the window narrows). DEVICE_CARD_GAP is
+// the half-gutter (applied as a wxALL border, so the visible gutter is 2x this).
 #define DEVICE_CARD_WIDTH  268
 #define DEVICE_CARD_HEIGHT 208
 #define DEVICE_CARD_GAP    8
@@ -80,6 +83,11 @@ private:
 
 
     Button*                 m_button_edit{nullptr};
+    // Farm toolbar live search (ui-md3 Multi.jsx). m_search_filter holds the
+    // lowercased query; it is applied to the card grid BEFORE paging so the page
+    // count / flipping stay consistent with what is shown.
+    SearchField*            m_search{ nullptr };
+    wxString                m_search_filter;
     wxBoxSizer*             page_sizer{ nullptr };
     wxPanel*                m_main_panel{ nullptr };
     wxBoxSizer*             m_main_sizer{nullptr};

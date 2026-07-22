@@ -18300,6 +18300,21 @@ msgstr ""
 msgid "Chamber light"
 msgstr ""
 
+msgid "Connected"
+msgstr ""
+
+msgid "Connecting"
+msgstr ""
+
+msgid "Device farm"
+msgstr ""
+
+msgid "Search devices"
+msgstr ""
+
+msgid "No devices match your search."
+msgstr ""
+
 #~ msgid "Second"
 #~ msgstr "Second"
 

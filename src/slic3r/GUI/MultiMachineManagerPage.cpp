@@ -2,6 +2,7 @@
 #include "GUI_App.hpp"
 #include "MainFrame.hpp"
 #include "Widgets/MaterialIcon.hpp"
+#include "Widgets/SearchField.hpp"
 
 #include "DeviceCore/DevManager.h"
 
@@ -320,22 +321,37 @@ MultiMachineManagerPage::MultiMachineManagerPage(wxWindow* parent)
     );
 
 
-    StateColor clean_bg(std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SurfaceContainerLowest), StateColor::Disabled), std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OutlineVariant), StateColor::Pressed),
-        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SurfaceContainerHigh), StateColor::Hovered), std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SurfaceContainerLowest), StateColor::Enabled),
-        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SurfaceContainerLowest), StateColor::Normal));
-    StateColor clean_bd(std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OutlineVariant), StateColor::Disabled), std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Outline), StateColor::Enabled));
-    StateColor clean_text(std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Outline), StateColor::Disabled), std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnSurface), StateColor::Enabled));
+    // ---- MD3 farm toolbar (ui-md3 Multi.jsx): 'Device farm' title + live
+    // SearchField + the Edit-printers flow as a filled (Primary) kit button.
+    // Replaces the legacy right-aligned Edit-only row. The sort toggles below
+    // (m_table_head_panel) stay functional. ----
+    auto* toolbar_sizer = new wxBoxSizer(wxHORIZONTAL);
 
-    auto sizer_button_printer = new wxBoxSizer(wxHORIZONTAL);
-    sizer_button_printer->SetMinSize(wxSize(FromDIP(DEVICE_ITEM_MAX_WIDTH), -1));
+    auto* farm_title = new wxStaticText(m_main_panel, wxID_ANY, _L("Device farm"));
+    farm_title->SetForegroundColour(StateColor::semantic(MD3::Role::OnSurface));
+    farm_title->SetFont(Label::Head_20);
+
+    m_search = new SearchField(m_main_panel, _L("Search devices"));
+    m_search->SetColorScheme(MD3::ColorScheme::Device);
+    m_search->SetMinSize(wxSize(FromDIP(240), FromDIP(40)));
+    m_search->SetMaxSize(wxSize(FromDIP(340), FromDIP(40)));
+    // Live name/type filter of the card grid: reset to the first page and rebuild
+    // so paging tracks the filtered set (see refresh_user_device).
+    m_search->SetOnQuery([this](const wxString& kw) {
+        m_search_filter = kw.Lower();
+        m_search_filter.Trim(true).Trim(false);
+        m_current_page = 0;
+        refresh_user_device();
+    });
+
     m_button_edit = new Button(m_main_panel, _L("Edit Printers"));
-    m_button_edit->SetBackgroundColor(clean_bg);
-    m_button_edit->SetBorderColor(clean_bd);
-    m_button_edit->SetTextColor(clean_text);
+    m_button_edit->SetBackgroundColor(m_btn_bg_enable);
+    m_button_edit->SetBorderColor(m_btn_bg_enable);
+    m_button_edit->SetTextColor(StateColor::semantic(MD3::Role::OnPrimary));
     m_button_edit->SetFont(Label::Body_12);
-    m_button_edit->SetCornerRadius(6);
-    m_button_edit->SetMinSize(wxSize(FromDIP(90), FromDIP(36)));
-    m_button_edit->SetMaxSize(wxSize(FromDIP(90), FromDIP(36)));
+    m_button_edit->SetCornerRadius(FromDIP(18));
+    m_button_edit->SetMinSize(wxSize(FromDIP(120), FromDIP(40)));
+    m_button_edit->SetMaxSize(wxSize(FromDIP(150), FromDIP(40)));
 
     m_button_edit->Bind(wxEVT_BUTTON, [this](wxCommandEvent& evt) {
         MultiMachinePickPage dlg;
@@ -344,12 +360,15 @@ MultiMachineManagerPage::MultiMachineManagerPage(wxWindow* parent)
         evt.Skip();
     });
 
-    sizer_button_printer->Add( 0, 0, 1, wxEXPAND, 5 );
-    sizer_button_printer->Add(m_button_edit, 0, wxALIGN_CENTER, 0);
+    toolbar_sizer->Add(farm_title, 0, wxALIGN_CENTER_VERTICAL, 0);
+    toolbar_sizer->Add(m_search, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(16));
+    toolbar_sizer->AddStretchSpacer(1);
+    toolbar_sizer->Add(m_button_edit, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(16));
 
+    // Sort strip: no longer pinned to the fixed farm width; it spans fluidly
+    // (added wxEXPAND below) with the two functional sort toggles left-packed.
     m_table_head_panel = new wxPanel(m_main_panel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
-    m_table_head_panel->SetMinSize(wxSize(FromDIP(DEVICE_ITEM_MAX_WIDTH), -1));
-    m_table_head_panel->SetMaxSize(wxSize(FromDIP(DEVICE_ITEM_MAX_WIDTH), -1));
+    m_table_head_panel->SetMinSize(wxSize(-1, FromDIP(DEVICE_ITEM_MAX_HEIGHT)));
     m_table_head_panel->SetBackgroundColour(StateColor::semantic(MD3::Role::SurfaceContainer));
     m_table_head_sizer = new wxBoxSizer(wxHORIZONTAL);
 
@@ -434,8 +453,6 @@ MultiMachineManagerPage::MultiMachineManagerPage(wxWindow* parent)
     m_table_head_panel->Layout();
 
     m_tip_text = new wxStaticText(m_main_panel, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER);
-    m_tip_text->SetMinSize(wxSize(FromDIP(DEVICE_ITEM_MAX_WIDTH), -1));
-    m_tip_text->SetMaxSize(wxSize(FromDIP(DEVICE_ITEM_MAX_WIDTH), -1));
     m_tip_text->SetLabel(_L("Please select the devices you would like to manage here (up to 6 devices)"));
     m_tip_text->SetForegroundColour(StateColor::semantic(MD3::Role::OnSurfaceVariant));
     m_tip_text->SetFont(::Label::Head_20);
@@ -460,14 +477,25 @@ MultiMachineManagerPage::MultiMachineManagerPage(wxWindow* parent)
     m_machine_list = new wxScrolledWindow(m_main_panel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
     m_machine_list->SetBackgroundColour(StateColor::semantic(MD3::Role::SurfaceContainerLowest));
     m_machine_list->SetScrollRate(0, 5);
-    m_machine_list->SetMinSize(wxSize(FromDIP(DEVICE_ITEM_MAX_WIDTH), 10 * FromDIP(DEVICE_ITEM_MAX_HEIGHT)));
-    m_machine_list->SetMaxSize(wxSize(FromDIP(DEVICE_ITEM_MAX_WIDTH), 10 * FromDIP(DEVICE_ITEM_MAX_HEIGHT)));
+    // Width is fluid (min = one card column, no max pin) so the grid host fills
+    // the panel via wxEXPAND and the wrap sizer reflows the cards; the viewport
+    // height stays fixed so overflow scrolls as before.
+    m_machine_list->SetMinSize(wxSize(FromDIP(DEVICE_CARD_WIDTH + 2 * DEVICE_CARD_GAP), 10 * FromDIP(DEVICE_ITEM_MAX_HEIGHT)));
+    m_machine_list->SetMaxSize(wxSize(-1, 10 * FromDIP(DEVICE_ITEM_MAX_HEIGHT)));
 
     // Responsive card grid: a wrap sizer reflows the device cards across the
     // available width (list -> grid anatomy per ui-md3 Multi.jsx). Held here as
     // the base wxBoxSizer* member; wxWrapSizer derives from wxBoxSizer.
     m_sizer_machine_list = new wxWrapSizer(wxHORIZONTAL);
     m_machine_list->SetSizer(m_sizer_machine_list);
+    // Re-wrap the grid whenever the fluid host is resized (window narrows/widens).
+    m_machine_list->Bind(wxEVT_SIZE, [this](wxSizeEvent& e) {
+        if (m_sizer_machine_list) {
+            m_sizer_machine_list->Layout();
+            m_machine_list->FitInside();
+        }
+        e.Skip();
+    });
     m_machine_list->Layout();
 
     // add flipping page
@@ -476,9 +504,9 @@ MultiMachineManagerPage::MultiMachineManagerPage(wxWindow* parent)
         std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SurfaceContainerLowest), StateColor::Normal)
     );
 
+    // Pagination strip spans fluidly (added wxEXPAND below); its internal sizer
+    // keeps the flip controls right-aligned as before.
     m_flipping_panel = new wxPanel(m_main_panel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
-    m_flipping_panel->SetMinSize(wxSize(FromDIP(DEVICE_ITEM_MAX_WIDTH), -1));
-    m_flipping_panel->SetMaxSize(wxSize(FromDIP(DEVICE_ITEM_MAX_WIDTH), -1));
     m_flipping_panel->SetBackgroundColour(StateColor::semantic(MD3::Role::SurfaceContainerLowest));
 
     m_flipping_page_sizer = new wxBoxSizer(wxHORIZONTAL);
@@ -549,13 +577,13 @@ MultiMachineManagerPage::MultiMachineManagerPage(wxWindow* parent)
     m_flipping_panel->Layout();
 
     m_main_sizer->AddSpacer(FromDIP(16));
-    m_main_sizer->Add(sizer_button_printer, 0, wxALIGN_CENTER_HORIZONTAL, 0);
-     m_main_sizer->AddSpacer(FromDIP(5));
-    m_main_sizer->Add(m_table_head_panel, 0, wxALIGN_CENTER_HORIZONTAL, 0);
-    m_main_sizer->Add(m_tip_text, 0, wxALIGN_CENTER_HORIZONTAL | wxTOP, FromDIP(50));
+    m_main_sizer->Add(toolbar_sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(4));
+    m_main_sizer->AddSpacer(FromDIP(12));
+    m_main_sizer->Add(m_table_head_panel, 0, wxEXPAND, 0);
+    m_main_sizer->Add(m_tip_text, 0, wxEXPAND | wxTOP, FromDIP(50));
     m_main_sizer->Add(m_button_add, 0, wxALIGN_CENTER_HORIZONTAL | wxTOP, FromDIP(16));
-    m_main_sizer->Add(m_machine_list, 0, wxALIGN_CENTER_HORIZONTAL, 0);
-    m_main_sizer->Add(m_flipping_panel, 0, wxALIGN_CENTER_HORIZONTAL, 0);
+    m_main_sizer->Add(m_machine_list, 0, wxEXPAND | wxTOP, FromDIP(8));
+    m_main_sizer->Add(m_flipping_panel, 0, wxEXPAND | wxTOP, FromDIP(8));
     m_main_panel->SetSizer(m_main_sizer);
     m_main_panel->Layout();
     page_sizer = new wxBoxSizer(wxVERTICAL);
@@ -599,22 +627,50 @@ void MultiMachineManagerPage::refresh_user_device(bool clear)
     }
 
 
-    m_total_count = user_machine.size();
+    const int total_selected = static_cast<int>(user_machine.size());
 
+    // Full state list for the selected devices.
     m_state_objs.clear();
     for (auto it = user_machine.begin(); it != user_machine.end(); ++it) {
         sync_state(it->second);
     }
 
-    //sort
-    if (m_sort.rule != SortItem::SortRule::SR_None) {
-        std::sort(m_state_objs.begin(), m_state_objs.end(), m_sort.get_machine_call_back());
+    // Live farm-search filter (device name / printer type), applied BEFORE
+    // paging so the page count and flipping controls track the visible set. An
+    // empty query keeps every selected device.
+    std::vector<ObjState> filtered;
+    filtered.reserve(m_state_objs.size());
+    if (m_search_filter.IsEmpty()) {
+        filtered = m_state_objs;
+    } else {
+        for (const auto& st : m_state_objs) {
+            wxString name = wxString::FromUTF8(st.state_dev_name).Lower();
+            wxString type;
+            auto mit = user_machine.find(st.dev_id);
+            if (mit != user_machine.end() && mit->second)
+                type = wxString::FromUTF8(mit->second->printer_type).Lower();
+            if (name.Find(m_search_filter) != wxNOT_FOUND ||
+                (!type.IsEmpty() && type.Find(m_search_filter) != wxNOT_FOUND))
+                filtered.push_back(st);
+        }
     }
 
-    double result = static_cast<double>(user_machine.size()) / m_count_page_item;
-    m_total_page = std::ceil(result);
+    //sort
+    if (m_sort.rule != SortItem::SortRule::SR_None) {
+        std::sort(filtered.begin(), filtered.end(), m_sort.get_machine_call_back());
+    }
 
-    std::vector<ObjState> sort_devices = extractRange(m_state_objs, m_current_page * m_count_page_item, (m_current_page + 1) * m_count_page_item - 1 );
+    // Pagination is driven by the FILTERED count; keep the current page in range
+    // as filtering shrinks the result set.
+    m_total_count = static_cast<int>(filtered.size());
+    double result = static_cast<double>(m_total_count) / m_count_page_item;
+    m_total_page = std::ceil(result);
+    if (m_total_page <= 0)
+        m_current_page = 0;
+    else if (m_current_page > m_total_page - 1)
+        m_current_page = m_total_page - 1;
+
+    std::vector<ObjState> sort_devices = extractRange(filtered, m_current_page * m_count_page_item, (m_current_page + 1) * m_count_page_item - 1 );
     std::vector<std::string> subscribe_list;
 
     for (auto i = 0; i < sort_devices.size(); ++i) {
@@ -633,8 +689,23 @@ void MultiMachineManagerPage::refresh_user_device(bool clear)
 
     dev->subscribe_device_list(subscribe_list);
 
-    m_tip_text->Show(m_device_items.empty());
-    m_button_add->Show(m_device_items.empty());
+    // Empty states: "search excluded everything" (hint only, no Add) is distinct
+    // from "nothing selected yet" (the original tip + Add affordance). Both _L.
+    const bool has_matches = !m_device_items.empty();
+    if (!has_matches && total_selected > 0 && !m_search_filter.IsEmpty()) {
+        m_tip_text->SetLabel(_L("No devices match your search."));
+        m_tip_text->Wrap(-1);
+        m_tip_text->Show(true);
+        m_button_add->Show(false);
+    } else if (!has_matches) {
+        m_tip_text->SetLabel(_L("Please select the devices you would like to manage here (up to 6 devices)"));
+        m_tip_text->Wrap(-1);
+        m_tip_text->Show(true);
+        m_button_add->Show(true);
+    } else {
+        m_tip_text->Show(false);
+        m_button_add->Show(false);
+    }
 
     update_page_number();
     m_flipping_panel->Show(m_total_page > 1);
@@ -795,8 +866,14 @@ void MultiMachineManagerPage::msw_rescale()
     m_page_num_enter->SetMaxSize(wxSize(FromDIP(25), FromDIP(25)));
 
     m_button_edit->Rescale();
-    m_button_edit->SetMinSize(wxSize(FromDIP(90), FromDIP(36)));
-    m_button_edit->SetMaxSize(wxSize(FromDIP(90), FromDIP(36)));
+    m_button_edit->SetMinSize(wxSize(FromDIP(120), FromDIP(40)));
+    m_button_edit->SetMaxSize(wxSize(FromDIP(150), FromDIP(40)));
+
+    if (m_search) {
+        m_search->Rescale();
+        m_search->SetMinSize(wxSize(FromDIP(240), FromDIP(40)));
+        m_search->SetMaxSize(wxSize(FromDIP(340), FromDIP(40)));
+    }
 
 
     for (const auto& item : m_device_items) {

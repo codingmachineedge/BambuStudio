@@ -1340,3 +1340,27 @@ msgstr "輔助風扇"
 #. reviewed-category: connection-offline
 msgid "Chamber light"
 msgstr "機箱燈"
+
+#. reviewed-category: connection-offline
+msgid "Connected"
+msgstr "已連接"
+
+#. reviewed-category: connection-offline
+msgid "Connecting"
+msgstr "連接緊"
+
+#. reviewed-category: connection-offline
+msgid "Sending"
+msgstr "傳送緊"
+
+#. reviewed-category: connection-offline
+msgid "Device farm"
+msgstr "打印機農場"
+
+#. reviewed-category: connection-offline
+msgid "Search devices"
+msgstr "搜尋設備"
+
+#. reviewed-category: connection-offline
+msgid "No devices match your search."
+msgstr "搵唔到符合搜尋嘅設備。"

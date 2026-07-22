@@ -39,7 +39,6 @@
 #include "Widgets/MD3Dialog.hpp"
 #include <wx/simplebook.h>
 #include <wx/hashmap.h>
-#include "Widgets/AnimaController.hpp"
 
 
 namespace Slic3r {
@@ -47,6 +46,10 @@ class FileTransferTunnel;
 class FileTransferJob;
 
 namespace GUI {
+
+// MD3 indeterminate circular-progress affordance (defined in SendToPrinter.cpp).
+// Replaces the legacy raster AnimaIcon spinner in the connecting panel.
+class MD3Spinner;
 
 class SendToPrinterDialog : public MD3Dialog
 {
@@ -82,6 +85,10 @@ private:
     ThumbnailPanel*                     m_thumbnailPanel{ nullptr };
     ComboBox*                           m_comboBox_printer{ nullptr };
     ComboBox*                           m_comboBox_bed{ nullptr };
+    // Printer card (sc-highest r16) that wraps the machine selection: printer
+    // identity via the ComboBox + a leading-dot connection status label.
+    StaticBox*                          m_printer_card{ nullptr };
+    wxStaticText*                       m_printer_status{ nullptr };
     Button*                             m_rename_button{ nullptr };
     Button*                             m_button_refresh{ nullptr };
     Button*                             m_button_ensure{ nullptr };
@@ -111,7 +118,6 @@ private:
     Label*                              m_st_txt_error_desc{ nullptr };
     Label*                              m_st_txt_extra_info{ nullptr };
     wxHyperlinkCtrl*                    m_link_network_state{ nullptr };
-    StateColor                          btn_bg_enable;
     wxBoxSizer*                         rename_sizer_v{ nullptr };
     wxBoxSizer*                         rename_sizer_h{ nullptr };
     wxBoxSizer*                         sizer_thumbnail;
@@ -119,7 +125,7 @@ private:
     wxBoxSizer*                         m_sizer_main;
     wxStaticText*                       m_file_name;
     PrintDialogStatus                   m_print_status{ PrintStatusInit };
-    AnimaIcon *                         m_animaicon{nullptr};
+    MD3Spinner *                        m_connect_spinner{nullptr};
 
     std::shared_ptr<SendJob>            m_send_job{nullptr};
     std::vector<wxString>               m_bedtype_list;
@@ -211,6 +217,8 @@ public:
     void on_selection_changed(wxCommandEvent& event);
     void Enable_Refresh_Button(bool en);
     void show_status(PrintDialogStatus status, std::vector<wxString> params = std::vector<wxString>());
+    // Reflect the live connection status on the printer card's leading-dot label.
+    void update_printer_card_status(PrintDialogStatus status);
     void Enable_Send_Button(bool en);
     void on_dpi_changed(const wxRect& suggested_rect) override;
     void update_user_machine_list();

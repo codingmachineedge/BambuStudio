@@ -12,7 +12,11 @@
 #include "ReleaseNote.hpp"
 #include "Widgets/RoundedRectangle.hpp"
 #include "Widgets/StaticBox.hpp"
+#include "Widgets/MaterialIcon.hpp"
 #include "ConnectPrinter.hpp"
+
+#include <wx/graphics.h>
+#include <wx/dcbuffer.h>
 
 #include <wx/progdlg.h>
 #include <wx/clipbrd.h>
@@ -66,6 +70,108 @@ static std::string ParseErrorCode(int errorcde)
     if (it != error_messages.end()) { return it->second; }
     return "";
 }
+
+// Compact MD3 indeterminate circular-progress affordance. Replaces the legacy
+// raster AnimaIcon spinner shown while the dialog probes a printer connection:
+// Play() rotates a 270-degree Primary arc over a SurfaceContainerHighest track,
+// Stop() freezes it, and Enable() swaps to a static Refresh retry glyph. The
+// Play/Stop/Enable/Rescale surface intentionally mirrors AnimaIcon so the call
+// sites keep their original meaning. Colours resolve through StateColor::semantic
+// so the affordance tracks light/dark automatically; sizing is FromDIP.
+class MD3Spinner : public wxWindow
+{
+public:
+    MD3Spinner(wxWindow *parent, int size_px = 22)
+        : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE), m_size(size_px)
+    {
+        SetBackgroundStyle(wxBG_STYLE_PAINT);
+        SetDoubleBuffered(true);
+        const wxSize s(FromDIP(m_size), FromDIP(m_size));
+        SetMinSize(s);
+        SetMaxSize(s);
+        SetSize(s);
+        m_timer.SetOwner(this);
+        Bind(wxEVT_PAINT, &MD3Spinner::onPaint, this);
+        Bind(wxEVT_TIMER, [this](wxTimerEvent &) {
+            m_angle += 0.45;
+            if (m_angle > 2 * kPi) m_angle -= 2 * kPi;
+            Refresh();
+        });
+    }
+    ~MD3Spinner() override { m_timer.Stop(); }
+
+    void Play()
+    {
+        m_retry = false;
+        if (!m_timer.IsRunning()) m_timer.Start(60);
+        Refresh();
+    }
+    void Stop() { m_timer.Stop(); Refresh(); }
+    void Enable() { m_retry = true; m_timer.Stop(); Refresh(); }
+    bool IsPlaying() { return m_timer.IsRunning(); }
+    bool IsRunning() const { return const_cast<wxTimer &>(m_timer).IsRunning(); }
+    void Rescale()
+    {
+        const wxSize s(FromDIP(m_size), FromDIP(m_size));
+        SetMinSize(s);
+        SetMaxSize(s);
+        SetSize(s);
+        Refresh();
+    }
+
+private:
+    static constexpr double kPi = 3.14159265358979323846;
+
+    void onPaint(wxPaintEvent &)
+    {
+        wxAutoBufferedPaintDC pdc(this);
+        wxGCDC                dc(pdc);
+        wxGraphicsContext    *gc = dc.GetGraphicsContext();
+        if (!gc) return;
+        gc->SetAntialiasMode(wxANTIALIAS_DEFAULT);
+
+        const wxSize sz = GetClientSize();
+        const double w  = sz.x;
+        const double h  = sz.y;
+
+        // Opaque background matching the surrounding surface.
+        gc->SetPen(*wxTRANSPARENT_PEN);
+        gc->SetBrush(wxBrush(GetBackgroundColour()));
+        gc->DrawRectangle(0, 0, w, h);
+
+        const wxColour primary = StateColor::semantic(MD3::Role::Primary);
+
+        // Frozen retry state: a single static Refresh glyph in Primary.
+        if (m_retry) {
+            MaterialIcon::drawCentered(dc, MaterialIcon::Refresh, FromDIP(m_size - 4), primary, wxRect(0, 0, sz.x, sz.y));
+            return;
+        }
+
+        const wxColour track  = StateColor::semantic(MD3::Role::SurfaceContainerHighest);
+        const double   stroke = FromDIP(2.5);
+        const double   r      = (std::min(w, h) - stroke) / 2.0;
+        const double   cx     = w / 2.0;
+        const double   cy     = h / 2.0;
+        if (r <= 0) return;
+
+        // Full track ring.
+        wxGraphicsPath tp = gc->CreatePath();
+        tp.AddCircle(cx, cy, r);
+        gc->SetPen(gc->CreatePen(wxGraphicsPenInfo(track, stroke)));
+        gc->StrokePath(tp);
+
+        // Rotating 270-degree indeterminate arc with round caps.
+        wxGraphicsPath ap = gc->CreatePath();
+        ap.AddArc(cx, cy, r, m_angle, m_angle + 1.5 * kPi, true);
+        gc->SetPen(gc->CreatePen(wxGraphicsPenInfo(primary, stroke).Cap(wxCAP_ROUND)));
+        gc->StrokePath(ap);
+    }
+
+    int     m_size;
+    double  m_angle{0.0};
+    bool    m_retry{false};
+    wxTimer m_timer;
+};
 
 void SendToPrinterDialog::stripWhiteSpace(std::string& str)
 {
@@ -274,30 +380,53 @@ SendToPrinterDialog::SendToPrinterDialog(Plater *plater)
     m_line_materia->SetForegroundColour(StateColor::semantic(MD3::Role::OutlineVariant));
     m_line_materia->SetBackgroundColour(StateColor::semantic(MD3::Role::OutlineVariant));
 
-    wxBoxSizer *m_sizer_printer = new wxBoxSizer(wxHORIZONTAL);
+    // Printer card: an sc-highest r16 Material card that wraps the machine
+    // selection. Its header row carries the "Printer" identity + a leading-dot
+    // connection status; the body holds the existing ComboBox (whose own
+    // dropdown arrow is the expand_more affordance) and the Refresh button. The
+    // ComboBox binding / member pointers are unchanged, so every downstream data
+    // path (update_user_printer, on_selection_changed, on_refresh) is preserved.
+    const wxColour card_fill = StateColor::semantic(MD3::Role::SurfaceContainerHighest);
 
-    m_stext_printer_title = new wxStaticText(this, wxID_ANY, _L("Printer"), wxDefaultPosition, wxSize(-1, -1), 0);
+    m_printer_card = new StaticBox(this);
+    m_printer_card->SetDensity(StaticBox::Density::Comfortable); // r16
+    m_printer_card->SetBorderWidth(0);
+    m_printer_card->SetBackgroundColor(StateColor(card_fill));
+
+    wxBoxSizer *m_sizer_printer      = new wxBoxSizer(wxVERTICAL);
+    wxBoxSizer *m_sizer_printer_head = new wxBoxSizer(wxHORIZONTAL);
+    wxBoxSizer *m_sizer_printer_sel  = new wxBoxSizer(wxHORIZONTAL);
+
+    m_stext_printer_title = new wxStaticText(m_printer_card, wxID_ANY, _L("Printer"), wxDefaultPosition, wxSize(-1, -1), 0);
     m_stext_printer_title->SetFont(::Label::Head_14);
     m_stext_printer_title->Wrap(-1);
     m_stext_printer_title->SetForegroundColour(m_colour_bold_color);
-    m_stext_printer_title->SetBackgroundColour(m_colour_def_color);
+    m_stext_printer_title->SetBackgroundColour(card_fill);
 
-    m_sizer_printer->Add(m_stext_printer_title, 0, wxALL | wxLEFT, FromDIP(5));
-    m_sizer_printer->Add(0, 0, 0, wxEXPAND | wxLEFT, FromDIP(12));
+    m_printer_status = new wxStaticText(m_printer_card, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxALIGN_RIGHT);
+    m_printer_status->SetFont(::Label::Body_13);
+    m_printer_status->SetForegroundColour(StateColor::semantic(MD3::Role::Primary));
+    m_printer_status->SetBackgroundColour(card_fill);
+    m_printer_status->Hide();
 
-    m_comboBox_printer = new ::ComboBox(this, wxID_ANY, "", wxDefaultPosition, wxSize(FromDIP(250), -1), 0, nullptr, wxCB_READONLY);
+    m_sizer_printer_head->Add(m_stext_printer_title, 0, wxALIGN_CENTER_VERTICAL, 0);
+    m_sizer_printer_head->AddStretchSpacer(1);
+    m_sizer_printer_head->Add(m_printer_status, 0, wxALIGN_CENTER_VERTICAL, 0);
+
+    m_comboBox_printer = new ::ComboBox(m_printer_card, wxID_ANY, "", wxDefaultPosition, wxSize(FromDIP(250), -1), 0, nullptr, wxCB_READONLY);
     m_comboBox_printer->Bind(wxEVT_COMBOBOX, &SendToPrinterDialog::on_selection_changed, this);
+    m_sizer_printer_sel->Add(m_comboBox_printer, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
 
-    m_sizer_printer->Add(m_comboBox_printer, 1, wxEXPAND | wxRIGHT, FromDIP(5));
-    btn_bg_enable = StateColor(std::pair<wxColour, int>(ThemeColor::BrandGreenPressed, StateColor::Pressed), std::pair<wxColour, int>(ThemeColor::BrandGreenHovered, StateColor::Hovered),
-                               std::pair<wxColour, int>(ThemeColor::BrandGreen, StateColor::Normal));
-
-    m_button_refresh = new Button(this, _L("Refresh"));
+    m_button_refresh = new Button(m_printer_card, _L("Refresh"));
     m_button_refresh->SetVariant(Button::Variant::Filled);
     m_button_refresh->SetButtonSize(Button::Size::Medium);
     m_button_refresh->Bind(wxEVT_BUTTON, &SendToPrinterDialog::on_refresh, this);
+    m_sizer_printer_sel->Add(m_button_refresh, 0, wxALIGN_CENTER_VERTICAL, 0);
 
-    m_sizer_printer->Add(m_button_refresh, 0, wxALL | wxLEFT, FromDIP(5));
+    m_sizer_printer->Add(m_sizer_printer_head, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(14));
+    m_sizer_printer->Add(m_sizer_printer_sel, 0, wxEXPAND | wxALL, FromDIP(14));
+    m_printer_card->SetSizer(m_sizer_printer);
+    m_printer_card->Layout();
 
     /*select storage*/
     m_storage_panel = new wxPanel(this);
@@ -314,18 +443,21 @@ SendToPrinterDialog::SendToPrinterDialog(Plater *plater)
 
     wxBoxSizer *m_sizer_connecting      = new wxBoxSizer(wxHORIZONTAL);
     m_connecting_panel = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxDefaultSize);
+    m_connecting_panel->SetBackgroundColour(m_colour_def_color);
 
     m_connecting_printer_msg = new wxStaticText(m_connecting_panel, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
     m_connecting_printer_msg->SetFont(::Label::Body_13);
-    m_connecting_printer_msg->SetForegroundColour(ThemeColor::TextPrimary);
+    m_connecting_printer_msg->SetForegroundColour(StateColor::semantic(MD3::Role::OnSurface));
+    m_connecting_printer_msg->SetBackgroundColour(m_colour_def_color);
     m_connecting_printer_msg->SetLabel(_L("Try to connect"));
-    /*m_connecting_printer_msg->Hide();*/
     m_connecting_printer_msg->Show();
 
-    std::vector<std::string> list{"ams_rfid_1", "ams_rfid_2", "ams_rfid_3", "ams_rfid_4"};
-    m_animaicon = new AnimaIcon(m_connecting_panel, wxID_ANY, list, "refresh_printer", 100);
+    // MD3 indeterminate circular progress affordance in place of the legacy
+    // raster AnimaIcon spinner (see show_status Play/Stop/Enable transitions).
+    m_connect_spinner = new MD3Spinner(m_connecting_panel, 22);
+    m_connect_spinner->SetBackgroundColour(m_colour_def_color);
     m_sizer_connecting->Add(m_connecting_printer_msg, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(5));
-    m_sizer_connecting->Add(m_animaicon, 0, wxALIGN_CENTER_VERTICAL);
+    m_sizer_connecting->Add(m_connect_spinner, 0, wxALIGN_CENTER_VERTICAL);
 
     m_connecting_panel->SetSizer(m_sizer_connecting);
     m_connecting_panel->Layout();
@@ -576,7 +708,7 @@ SendToPrinterDialog::SendToPrinterDialog(Plater *plater)
     m_sizer_main->Add(0, 0, 0, wxEXPAND | wxTOP, FromDIP(6));
     m_sizer_main->Add(m_line_materia, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(30));
     m_sizer_main->Add(0, 0, 0, wxEXPAND | wxTOP, FromDIP(12));
-    m_sizer_main->Add(m_sizer_printer, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(30));
+    m_sizer_main->Add(m_printer_card, 0, wxEXPAND | wxLEFT | wxRIGHT, FromDIP(30));
     m_sizer_main->Add(m_storage_panel, 0, wxALIGN_CENTER_HORIZONTAL | wxTOP , FromDIP(8));
     m_sizer_main->Add(0, 0, 0, wxEXPAND | wxTOP, FromDIP(11));
     m_sizer_main->Add(m_statictext_printer_msg, 0, wxALIGN_CENTER_HORIZONTAL, 0);
@@ -1375,18 +1507,61 @@ bool SendToPrinterDialog::is_blocking_printing(MachineObject* obj_)
 
 void SendToPrinterDialog::Enable_Refresh_Button(bool en)
 {
+    // The kit Filled Button renders its own MD3 disabled styling
+    // (SurfaceContainerHigh fill + TextDisabled label via StateColor::Disabled),
+    // so the enabled/disabled state is driven through Enable() alone; the legacy
+    // Grey500 / brand-green SetBackgroundColor overrides used to clobber that
+    // variant styling and are removed.
     if (!en) {
-        if (m_button_refresh->IsEnabled()) {
-            m_button_refresh->Disable();
-            m_button_refresh->SetBackgroundColor(ThemeColor::Grey500);
-            m_button_refresh->SetBorderColor(ThemeColor::Grey500);
-        }
+        if (m_button_refresh->IsEnabled())
+            m_button_refresh->Enable(false);
     } else {
-        if (!m_button_refresh->IsEnabled()) {
-            m_button_refresh->Enable();
-            m_button_refresh->SetBackgroundColor(btn_bg_enable);
-            m_button_refresh->SetBorderColor(btn_bg_enable);
-        }
+        if (!m_button_refresh->IsEnabled())
+            m_button_refresh->Enable(true);
+    }
+}
+
+void SendToPrinterDialog::update_printer_card_status(PrintDialogStatus status)
+{
+    if (!m_printer_status) return;
+
+    wxString text;
+    wxColour colour = StateColor::semantic(MD3::Role::Primary);
+    switch (status) {
+    case PrintDialogStatus::PrintStatusReadingFinished:
+        // Probe succeeded — the selected printer is reachable and idle.
+        text   = _L("Connected");
+        colour = StateColor::semantic(MD3::Role::Primary);
+        break;
+    case PrintDialogStatus::PrintStatusSending:
+        text   = _L("Sending");
+        colour = StateColor::semantic(MD3::Role::Primary);
+        break;
+    case PrintDialogStatus::PrintStatusConnecting:
+    case PrintDialogStatus::PrintStatusConnectingServer:
+    case PrintDialogStatus::PrintStatusReading:
+    case PrintDialogStatus::PrintStatusRefreshingMachineList:
+        text   = _L("Connecting");
+        colour = StateColor::semantic(MD3::Role::OnSurfaceVariant);
+        break;
+    default:
+        // Invalid / unsupported / error states: the message line below the card
+        // carries the detail, so the card keeps a neutral (hidden) status.
+        text = wxEmptyString;
+        break;
+    }
+
+    const bool show = !text.IsEmpty();
+    if (show) {
+        // Leading dot (U+25CF) is decoration; its colour encodes the state.
+        m_printer_status->SetLabel(wxString::FromUTF8("\xE2\x97\x8F  ") + text);
+        m_printer_status->SetForegroundColour(colour);
+    }
+    if (m_printer_status->IsShown() != show) {
+        m_printer_status->Show(show);
+        if (m_printer_card) m_printer_card->Layout();
+    } else if (show && m_printer_card) {
+        m_printer_card->Layout();
     }
 }
 
@@ -1397,6 +1572,9 @@ void SendToPrinterDialog::show_status(PrintDialogStatus status, std::vector<wxSt
     else
         return;
 	m_print_status = status;
+
+	// Reflect the connection state on the printer card's status dot.
+	update_printer_card_status(status);
 
 	// m_comboBox_printer
 	if (status == PrintDialogStatus::PrintStatusRefreshingMachineList)
@@ -1411,7 +1589,7 @@ void SendToPrinterDialog::show_status(PrintDialogStatus status, std::vector<wxSt
         m_connecting_printer_msg->SetLabel(_L("Try to connect"));
         update_print_status_msg(wxEmptyString, true, true);
         m_connecting_panel->Show();
-        m_animaicon->Play();
+        m_connect_spinner->Play();
 
         Layout();
         Enable_Send_Button(false);
@@ -1422,8 +1600,8 @@ void SendToPrinterDialog::show_status(PrintDialogStatus status, std::vector<wxSt
         m_connecting_printer_msg->SetLabel(_L("Connection failed. Click the icon to retry"));
             update_print_status_msg(wxEmptyString, true, true);
             m_connecting_panel->Show();
-            m_animaicon->Stop();
-            m_animaicon->Enable();
+            m_connect_spinner->Stop();
+            m_connect_spinner->Enable();
 
             Layout();
             Enable_Send_Button(false);
@@ -1534,18 +1712,19 @@ void SendToPrinterDialog::show_status(PrintDialogStatus status, std::vector<wxSt
 
 void SendToPrinterDialog::Enable_Send_Button(bool en)
 {
+    // Drive the Send button's enabled/disabled appearance through the kit
+    // Button::Enable() disabled styling (StateColor::Disabled -> SurfaceContainerHigh
+    // fill + TextDisabled label); the legacy Grey500 / brand-green
+    // SetBackgroundColor overrides used to defeat that and are removed. The
+    // storage-panel show/hide behaviour is preserved exactly.
     if (!en) {
         if (m_button_ensure->IsEnabled()) {
-            m_button_ensure->Disable();
-            m_button_ensure->SetBackgroundColor(ThemeColor::Grey500);
-            m_button_ensure->SetBorderColor(ThemeColor::Grey500);
+            m_button_ensure->Enable(false);
             m_storage_panel->Hide();
         }
     } else {
         if (!m_button_ensure->IsEnabled()) {
-            m_button_ensure->Enable();
-            m_button_ensure->SetBackgroundColor(btn_bg_enable);
-            m_button_ensure->SetBorderColor(btn_bg_enable);
+            m_button_ensure->Enable(true);
             m_storage_panel->Show();
         }
     }
@@ -1557,6 +1736,7 @@ void SendToPrinterDialog::on_dpi_changed(const wxRect &suggested_rect)
     // the Button's own Rescale(), so no manual size/radius override here.
     m_button_refresh->Rescale();
     m_button_ensure->Rescale();
+    if (m_connect_spinner) m_connect_spinner->Rescale();
     m_status_bar->msw_rescale();
     Fit();
     UpdateShape();

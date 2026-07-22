@@ -4,6 +4,7 @@
 #include "wxExtensions.hpp"
 #include "GUI_Utils.hpp"
 #include "Widgets/RadioBox.hpp"
+#include "Widgets/SwitchButton.hpp"
 #include "Widgets/Button.hpp"
 #include "Widgets/RoundedRectangle.hpp"
 #include "Widgets/Label.hpp"
@@ -13,8 +14,8 @@
 #include "Widgets/MD3Dialog.hpp"
 #include "GUI_App.hpp"
 #include "wx/hyperlink.h"
-#include <wx/radiobox.h>
 #include "libslic3r/Calib.hpp"
+#include <vector>
 
 namespace Slic3r { namespace GUI {
 
@@ -36,8 +37,8 @@ protected:
 	int  m_bowdenExtruderId{-1};
 	Calib_Params m_params;
 
-	wxRadioBox* m_rbExtruderType{nullptr};
-	wxRadioBox* m_rbMethod;
+	MultiSwitchButton* m_rbExtruderType{nullptr};
+	MultiSwitchButton* m_rbMethod;
 	TextInput* m_tiStartPA;
 	TextInput* m_tiEndPA;
 	TextInput* m_tiPAStep;
@@ -57,10 +58,13 @@ public:
 protected:
     
     virtual void on_start(wxCommandEvent& event);
-    virtual void on_filament_type_changed(wxCommandEvent& event);
+    // Rewired off wxRadioBox: the kit RadioBox chip group reports its selected
+    // index directly, so the handler takes the index instead of a wxCommandEvent.
+    void on_filament_type_changed(int selection);
     Calib_Params m_params;
 
-    wxRadioBox* m_rbFilamentType;
+    std::vector<RadioBox*> m_filamentRadios;
+    int m_filamentSel{0};
     TextInput* m_tiStart;
     TextInput* m_tiEnd;
     TextInput* m_tiStep;
