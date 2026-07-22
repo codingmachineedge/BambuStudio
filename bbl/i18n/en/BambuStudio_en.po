@@ -18318,6 +18318,12 @@ msgstr ""
 msgid "No settings match your search."
 msgstr ""
 
+msgid "%s nozzle"
+msgstr ""
+
+msgid "Simple settings"
+msgstr ""
+
 #~ msgid "Second"
 #~ msgstr "Second"
 

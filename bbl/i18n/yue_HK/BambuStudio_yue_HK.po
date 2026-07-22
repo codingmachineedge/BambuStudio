@@ -1368,3 +1368,43 @@ msgstr "搵唔到符合搜尋嘅設備。"
 #. reviewed-category: preferences
 msgid "No settings match your search."
 msgstr "搵唔到符合搜尋嘅設定。"
+
+#. reviewed-category: connection-offline
+msgid "%s nozzle"
+msgstr "%s 噴嘴"
+
+#. reviewed-category: connection-offline
+msgid "Idle"
+msgstr "閒置"
+
+#. reviewed-category: slicing-printing
+msgid "Advanced settings"
+msgstr "進階設定"
+
+#. reviewed-category: slicing-printing
+msgid "Simple settings"
+msgstr "簡易設定"
+
+#. reviewed-category: slicing-printing
+msgid "Objects"
+msgstr "物件"
+
+#. reviewed-category: slicing-printing
+msgid "Bed type"
+msgstr "打印板類型"
+
+#. reviewed-category: slicing-printing
+msgid "Layer height"
+msgstr "層高"
+
+#. reviewed-category: slicing-printing
+msgid "Sparse infill density"
+msgstr "稀疏填充密度"
+
+#. reviewed-category: slicing-printing
+msgid "Sparse infill pattern"
+msgstr "稀疏填充圖案"
+
+#. reviewed-category: slicing-printing
+msgid "Enable support"
+msgstr "啟用支撐"

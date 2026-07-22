@@ -235,11 +235,25 @@ retention/pruning policy.
   anatomy needs C++ host APIs). Test repair: config keys ported to BambuStudio names, the invalid
   Catch2 exclusion fixed; the isolated suite build did not finish in-window — CI wiring deferred.
   New strings catalogued (coverage 331, .mo --check green).
-  **Remaining open (5 register rows, all 'build-in-the-loop' Plater sidebar):** printer identity
-  card, bed SelectField collapse, filament info-rows, Process card, Objects card — each needs an
-  implement-build-verify loop against the live combos; plus finishing the test-suite build/CI
-  wiring, the density call-site adoption, fresh screenshots, and first-run verification of the
-  from-source installer.
+  **Waves 10-14 shipped (2026-07-22, parallel worktrees): THE REGISTER IS CLOSED — 125 done /
+  4 recorded deviations / 0 open.** The combined Fable wave landed the five build-in-the-loop
+  Plater rows (printer identity card, bed SelectField with relocated hover popup, filament
+  info-rows with lockstep teardown, Process card with an Advanced/Simple flip keeping the full
+  ParamsPanel reachable, kit Objects card), finished the aggregate-test repair (both suites
+  compile and RUN: libslic3r_tests 87/95 pass, libnest2d 3 failures — the 11 residual runtime
+  failures are algorithm drift, recorded and deliberately NOT wired into CI), migrated 21 density
+  call sites to Metrics::active(), and polished MD3Dialog DPI / StateColor Device dark pairs /
+  Helio siblings. Opus waves 12-13 delivered GL viewport polish (glyph sub-chrome with per-icon
+  kept-raster reasons, identity-driven rail dividers, cached chrome with a review-caught
+  texture use-after-free fixed) and SendToPrinter/calibration/device-farm completion. Fable wave
+  14 wired startup density/accent, added Preferences live search, refreshed README/ROADMAP/docs
+  indexes and the GitHub wiki (6b0747d). Catalogs at 348, .mo --check green throughout.
+  **CRITICAL open verification — startup crash:** the Wave 14 screenshot pass found the
+  Wave 8/9-era binary crashes with heap corruption before any window (6/6 launches, WER evidence
+  recorded). That binary was built while agents were mid-edit, so the evidence is tainted; a
+  clean incremental build of the final tree was launched and a runtime smoke on it is the
+  mandatory next gate (the staged capture scripts make the screenshot retry fast). Until that
+  smoke passes, no runtime-health claim is made for the shipped tree.
 - Capture and review fresh full-compositor screenshots of the fully token-migrated native surfaces
   and replace the pre-sweep captures above.
 - Repair/re-enable the aggregate and `libnest2d_tests` suites instead of relying on the focused waiver.
