@@ -349,6 +349,16 @@ inline constexpr int radius_icon_tile = 14; // icon tiles
 inline constexpr int radius_rail      = 12; // rail buttons, snackbars
 inline constexpr int radius_tiny      = 8;  // tiny controls
 
+// Pill (stadium) radius for the fully-rounded controls the kit calls pills:
+// standalone buttons, chips, switches, the search field, and nav items. Their
+// corner radius is always half the control's height, not a fixed token, so it
+// is computed at the call site. Pass the CURRENT, DPI-scaled height at
+// paint/layout time (e.g. FromDIP(height)); a value cached at construction goes
+// stale on a monitor-DPI or density change. Button::applyMD3Style() re-derives
+// this on Rescale(), and the switch/thumb paths recompute it every paint.
+// Segmented controls are NOT pills — they keep the fixed radius_rail / radius_tiny.
+inline constexpr int pill_radius(int height) { return height / 2; }
+
 } // namespace Metrics
 
 // Prepare / Preview / Device 3D viewport only — never UI chrome. Axis colours
