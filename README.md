@@ -32,11 +32,18 @@ workspace: brand green for Prepare and general UI, Preview purple for the G-code
 teal for the printer surfaces. Functional data colors (filament swatches, G-code feature colors, 3D
 paint palettes) are deliberately preserved.
 
-An element-by-element parity audit reports the color, token, and typography layer as complete. The
-remaining deltas are structural component anatomy — the camera-HUD overlay system, the Material
-Symbols icon-font infrastructure, and some pill-geometry variants — documented as future work in the
-[roadmap](ROADMAP.md), not mis-colorings. This is a completed token layer, not yet a faithful
-component-by-component Material Design 3 rewrite.
+Beyond the token layer, an element-by-element conformance register
+([`docs/features/design-system/md3-parity-register.md`](docs/features/design-system/md3-parity-register.md))
+drove nine implementation waves of structural component anatomy. As of 2026-07-22 the register
+stands at **120 rows done, 4 recorded deviations** (each documented with concrete evidence in the
+register), **and 5 open rows** — the deep Prepare-sidebar rebuilds (printer identity card, bed
+field, filament info-rows, Process card, Objects card) — which are being finished in a concurrent
+implementation wave. Landed anatomy includes the Material Symbols icon font and ImGui glyph atlas,
+the rebuilt shared widget kit, the `MD3Dialog` shell with the MessageDialog family and the
+raw-`wxMessageBox` sweep, the kit title bar, the Preferences NavRail with runtime density/accent
+controls, the device camera HUD and card grid, the Preview timeline transport bar, and the
+glyph-to-GL-texture bridge for the 3D toolbar and gizmo rail. The register itself is the live
+tracker; counts above are as of this writing.
 
 Two native features were added in the same effort:
 
@@ -53,10 +60,12 @@ Full documentation of the token layer, migration, failure modes, and audit resul
 
 ### Installed-app captures
 
-These are full-display compositor captures of the locally installed native executable, not
-`ui-md3` reference images. They were reviewed on 2026-07-20 and predate the full token sweep;
-fresh captures of the fully migrated tree are still pending. They demonstrate native modernization
-only, not full component-anatomy conformance.
+These are captures of the locally installed native executable, not `ui-md3` reference images. They
+were reviewed on 2026-07-20 and predate the full token sweep, so they demonstrate native
+modernization only, not full component-anatomy conformance. Fresh captures of the fully migrated
+Home, Prepare, Preview, and Device surfaces are an open item tracked in the
+[roadmap](ROADMAP.md), which records the canonical target filenames; this gallery switches to
+those captures once they are produced and reviewed.
 
 | Home | Filament Manager |
 | :---: | :---: |
@@ -81,6 +90,20 @@ gallery above.
 | :---: | :---: |
 | [![Bambu Studio Material Design 3 Preview design reference in the dark theme and Hong Kong Cantonese](docs/readme-assets/material-preview-dark-yue-hk.png)](https://ding-ding-projects.github.io/BambuStudio/app/?view=preview&theme=dark&density=comfortable&accent=%237c5cff&lang=yue_HK) | [![Bambu Studio Material Design 3 Device design reference in the compact dark theme with English and Cantonese](docs/readme-assets/material-device-dark-bilingual.png)](https://ding-ding-projects.github.io/BambuStudio/app/?view=device&theme=dark&density=compact&accent=%2314b8a6&lang=bilingual_en_yue_HK) |
 
+## Windows installer
+
+The NSIS installer is restyled to Material Design 3: custom Welcome, language, install-source,
+build-progress, and Finish pages, with the unavoidable Win32 dialog deviations recorded in the
+installer documentation, and a root-cause fix for the previously garbled Cantonese language page
+(UTF-8 sources compiled with `/INPUTCHARSET UTF8`). Alongside the default prebuilt install, an
+optional interactive **Build from source** mode bootstraps Git, Node.js LTS, the Visual Studio 2022
+C++ Build Tools, and CMake, clones this repository at the release tag, compiles it locally with a
+bounded five-cycle automated repair loop, and hands the built payload to the same ownership,
+recovery, and uninstall flow as the prebuilt path. Build from source is never reachable in silent
+mode and never runs in CI; its first end-to-end run on a real machine is still an open verification
+item. See [Native Windows installer](docs/features/releases/windows-native-installer.md) and
+[Build from source](docs/features/releases/windows-build-from-source.md).
+
 ## Project history
 
 The native app includes app-local, Git-backed version history for `.3mf` projects. Each retained
@@ -99,18 +122,22 @@ The Windows pipeline builds and tests the native application, exercises installe
 and recovery behavior on a disposable GitHub-hosted runner, produces a per-file CycloneDX 1.6 SBOM,
 and creates GitHub provenance and SBOM attestations for the installer. It validates all three assets
 in a draft before publication and refuses to publish unless repository immutable releases are
-enabled. The current Material and project-history changes still require a successful final workflow
-run before they become release evidence. GitHub attestations and checksums are not Authenticode
-signatures; configuring a trusted
-Windows signing identity remains external work. Local focused validation on commit
-`3b00dc6aa` passed `language_mode_tests`, `project_history_tests`, and
-`deterministic_bbs_3mf_tests` (3/3). This focused gate is not the full aggregate suite: the
-upstream aggregate `libslic3r_tests` has current API-drift compile failures and `libnest2d_tests`
-has known baseline runtime failures, so both are explicitly waived from this branch gate pending
-upstream repair. On the migrated tree the hosted `Build BambuStudio` job succeeds (runs
-[`29848731027`](https://github.com/Ding-Ding-Projects/BambuStudio/actions/runs/29848731027) and
-[`29862992010`](https://github.com/Ding-Ding-Projects/BambuStudio/actions/runs/29862992010)), but a
-fully green run that also publishes the immutable release has not yet completed. See
+enabled. The publish pipeline is verified green: hosted run
+[`29877040307`](https://github.com/Ding-Ding-Projects/BambuStudio/actions/runs/29877040307)
+completed with both `Build BambuStudio` and `Publish Windows release` succeeding and published the
+non-draft release
+[`md3-windows-v02.08.01.55-r37`](https://github.com/Ding-Ding-Projects/BambuStudio/releases/tag/md3-windows-v02.08.01.55-r37)
+(installer, SHA-256 checksum, CycloneDX SBOM), and the subsequent register waves shipped further
+releases through the same gate. When an org-side restriction began returning HTTP 403 on release
+creation with the workflow token, the publish step was switched to authenticate with the
+`TOKEN_GITHUB` owner PAT (commit `fc7257366`, falling back to the workflow token where the secret
+is absent); release `r56` was published manually from run artifacts during that incident. GitHub
+attestations and checksums are not Authenticode signatures; configuring a trusted Windows signing
+identity remains external work. Local focused validation on commit `3b00dc6aa` passed
+`language_mode_tests`, `project_history_tests`, and `deterministic_bbs_3mf_tests` (3/3). This
+focused gate is not the full aggregate suite: `libslic3r_tests` and `libnest2d_tests` remain
+waived from the hosted gate; a Wave 9 repair ported the drifted config keys and fixed the invalid
+Catch2 exclusion, but the repaired suites are not yet wired back into CI. See
 [`HANDOFF.md`](HANDOFF.md) for the authoritative, current CI state.
 
 Bambu Studio is based on [PrusaSlicer](https://github.com/prusa3d/PrusaSlicer) by Prusa Research, which is from [Slic3r](https://github.com/Slic3r/Slic3r) by Alessandro Ranellucci and the RepRap community.
@@ -146,7 +173,10 @@ Other major features are:
 
 Use the upstream
 [Windows compile guide](https://github.com/bambulab/BambuStudio/wiki/Windows-Compile-Guide) for a
-developer build. The fork's release configuration is encoded in
+developer build. Non-developers who want a locally compiled build can instead use the installer's
+interactive [Build from source mode](docs/features/releases/windows-build-from-source.md), which
+bootstraps the toolchain and runs the same documented build path. The fork's release configuration
+is encoded in
 [`.github/workflows/build_bambu.yml`](.github/workflows/build_bambu.yml) and is orchestrated by
 [`.github/workflows/build_all.yml`](.github/workflows/build_all.yml). The release workflow enables
 native C++ tests and packages the installed payload with NSIS; see the

@@ -38,6 +38,20 @@ hosted run `29877040307` (head `ec631dfb2`) completed fully green — including 
   (`left`|`right`|`top`|`bottom`, default `left`), live re-dock from a Preferences "Prepare panel
   position" control, DPI-correct, preserving collapse and float behavior.
 
+### Structural component anatomy (register waves 1–9)
+
+Nine implementation waves driven by the parity register
+(`docs/features/design-system/md3-parity-register.md`) are committed and pushed on `master`, each
+gated by review and shipped through the hosted pipeline (releases `r37` through `r53` published
+along the train). Landed highlights: the Material Symbols icon font and the ImGui
+Roboto/Mono/Material-Symbols atlas with the raster-to-glyph sweeps; the rebuilt shared widget kit
+(SearchField, Slider, Checkbox, Radio, Switch, segmented controls, chips, fields); the `MD3Dialog`
+borderless shell with the MessageDialog family, the leaf-dialog reparenting, and the
+raw-`wxMessageBox` sweep; the kit title bar; the Preferences NavRail with runtime density and
+accent-seed controls; the device camera HUD, temperature rows, print options, AMS card reskin, and
+farm card grid; the Preview timeline transport bar; the glyph-to-GL-texture bridge plus toolbar and
+gizmo-rail chrome; and the sidebar object-manipulation card.
+
 ### Build and release tooling
 
 - Support pinning the Windows SDK via `PS_WINSDK` in `build_win.bat` and `deps-windows.cmake` as a
@@ -45,6 +59,14 @@ hosted run `29877040307` (head `ec631dfb2`) completed fully green — including 
 - Bind the SBOM generator to `pkg:github/$GITHUB_REPOSITORY` so the release identity is correct.
 - Make the immutable-release settings probe tolerate HTTP 403 and rely on post-publish
   immutability verification instead of failing.
+- Rebuild the NSIS installer on MD3 (custom Welcome/language/install-source/build-progress/Finish
+  pages, documented Win32 deviations, and the UTF-8 `/INPUTCHARSET` fix for the previously garbled
+  Cantonese language page), and add the interactive build-from-source install mode
+  (`3c12a1771`; see `docs/features/releases/windows-build-from-source.md`).
+- Authenticate the release-publish step with the `TOKEN_GITHUB` owner PAT, falling back to the
+  workflow token where the secret is absent (`fc7257366`). This works around an org-side
+  restriction that began returning HTTP 403 on release creation with the workflow token; `r56` was
+  published manually from run artifacts during that incident.
 
 ### Earlier landed work (retained)
 
@@ -65,32 +87,22 @@ hosted run `29877040307` (head `ec631dfb2`) completed fully green — including 
 
 ### Structural component anatomy (from the parity register)
 
-The canonical tracker is `docs/features/design-system/md3-parity-register.md` — **108 done / 21
-open** after Wave 7 (2026-07-22). Landed since the audit: camera HUD, Material Symbols icon-font
-infrastructure and the full raster→glyph sweeps, the rebuilt shared widget library
-(SearchField/Slider/Checkbox/Radio/Switch/segmented controls), the `MD3Dialog` shell with the
-MsgDialog family and ten leaf dialogs reparented onto it, the `GLIconGlyphBridge` glyph→GL-texture
-bridge for the 3D toolbar and gizmo rail, the kit title bar, the Preferences NavRail + Appearance
-section, the Preview timeline transport bar, and the device farm card grid. The 21 open rows are:
+The canonical tracker is `docs/features/design-system/md3-parity-register.md` — **120 done / 4
+recorded deviations / 5 open** after Wave 9 (2026-07-22). The register is the live source of
+truth; the counts here are a snapshot.
 
-- GL toolbar/rail background chrome and the viewport zoom/stat overlays — blocked on a
-  tint-capable GL rounded-rect path (the `flat_texture` shader has no tint uniform).
-- Six deep Prepare-sidebar rebuilds that wrap live-bound widgets (printer identity card, bed
-  SelectField, filament info-rows, Process card, Objects card, manipulation card).
-- Device deep anatomy: XY dial→grid (dual-step jog semantics), control strip, temperature rows,
-  print-options controls, AMS card rebuild.
-- Preset-editor TabCtrl nav pills (needs a TabCtrl leading-glyph API).
-- Three partial dialog shells (TextureImport resizable-GL, SyncAms simplebook, Helio always-dark)
-  and the project-webview page (deviation candidate).
-- The `raw-wxmessagebox` cross-cutting sweep (44 sites) — now unblocked by the MsgDialog shell.
-- The three theme literals retained over fixed bitmap assets are now anchored and justified in
-  `docs/features/design-system/md3-design-system.md` ("Retained theme literals"): the assembly-tree
-  delete badge (`AssemblyStepsUtilsImgui.cpp:4646-4647`, bound to the light-baked `cross_dark.svg`)
-  and the Helio header banner (`HelioReleaseNote.cpp:3168-3169`, bound to the `helio_icon` brand
-  bitmap). They are intentional until the icon-font / brand-asset infrastructure lets baked glyph
-  colors be tinted from tokens. Two further intentional retentions — the coupled preview-timeline
-  step marker (`AssemblyStepsUtilsImgui.cpp:823`/`:835`) and the amber "unsaved view" dot
-  (`:4606`, which needs an amber/warning role) — are tracked as token-parity follow-ups.
+- The 5 open rows are the deep Prepare-sidebar rebuilds that wrap live-bound widgets — printer
+  identity card, bed SelectField collapse, filament info-rows, Process card, Objects card. Each
+  needs an implement-build-verify loop against the live preset/printer combos; a concurrent
+  implementation wave is finishing them.
+- The 4 recorded deviations each carry concrete evidence in the register: the Device XY dial kept
+  as a 3x3 grid with a 10/1 step selector (the dial encoded jog magnitude in hit radius), the
+  scene-toolbar pill reskinned but not re-centred (collides with the collapse toolbar), the SyncAms
+  partial shell (simplebook footer gating), and the project-webview page (host-injected read-only
+  page restyled to kit tokens/CSS; true file-manager anatomy needs C++ host APIs).
+- A small set of bitmap-bound theme literals remains anchored and justified in
+  `docs/features/design-system/md3-design-system.md` ("Retained theme literals") pending tintable
+  brand-asset infrastructure and an amber/warning role.
 
 ### Verification and delivery
 
@@ -98,20 +110,35 @@ section, the Preview timeline transport bar, and the device farm card grid. The 
 - ~~Complete a fully green hosted run that also publishes the immutable release~~ — done: the same
   run published non-draft release `md3-windows-v02.08.01.55-r37` with installer, SHA-256 checksum,
   and CycloneDX SBOM; the draft-visibility failure was cleared by the lookup fix in `ec631dfb2`.
-- Capture fresh full-compositor screenshots of the fully token-migrated native Prepare, Preview, and
-  Device surfaces, visually review them, and replace the README's pre-sweep captures.
+- Capture and review fresh screenshots of the fully migrated native Home, Prepare, Preview, and
+  Device surfaces under the canonical filenames
+  `docs/readme-assets/native-md3-{home,prepare,preview,device}-light-en.png`. Until those captures
+  are produced and reviewed, the README gallery keeps the reviewed pre-sweep `native-material-*`
+  captures rather than referencing images that do not exist; the gallery switches to the canonical
+  filenames only when the files actually land.
+- Verify the installer's build-from-source mode end-to-end on a real machine. It compiles and is
+  reviewed, but its first complete interactive run (toolchain bootstrap through installed payload)
+  has not happened yet, and `PRODUCT_SOURCE_REPO_URL` defaults to a placeholder the owner should
+  confirm.
+- Wire the repaired test suites back into hosted CI. Wave 9 ported the drifted PrusaSlicer config
+  keys to BambuStudio names and fixed the invalid Catch2 `[NotWorking]` exclusion, but the isolated
+  suite build did not finish in-window; `libslic3r_tests` and `libnest2d_tests` remain waived from
+  the hosted gate until that wiring lands.
+- Adopt `MD3::Metrics::active()` at the remaining (~40) metric call sites so a density change
+  applies live instead of being restart-scoped.
 - Preserve the unrelated generated `routeTree.gen.ts` change when splitting the remaining work into
   reviewable commits and pushing `master`.
 
 ### Project history and localization
 
-- Finish the project-history lifecycle integration so each discrete edit boundary is staged before
-  the next edit can replace its state, manual saves are captured exactly, shutdown drains pending
-  work, and recoverable failures remain visible and retryable.
-- Finish native Cantonese strings for the new Material, history, model-preview, and sidebar surfaces
-  and rerun placeholder, resource, and fallback checks.
-- Repair the upstream aggregate and `libnest2d_tests` baselines, then restore their coverage to the
-  hosted gate rather than retaining the focused waiver.
+- Project-history retry semantics shipped during the register waves: durable failure notification
+  with Retry, retained failures surfaced in the history dialog with per-item and bulk retry, and
+  orphaned-manifest adoption on restart. Remaining lifecycle work is confirming each discrete edit
+  boundary is staged before the next edit can replace its state under real editing load.
+- Cantonese catalogs were kept current through the waves (model-preview, sidebar, Material,
+  history, and error-flow strings catalogued; the `.mo` reproducibility `--check` gate is green).
+  Remaining: strings from the in-flight sidebar wave, rerunning placeholder/resource/fallback
+  checks after it, and the independent human review of Cantonese copy tracked below.
 
 ## Needed before calling Material/history complete
 

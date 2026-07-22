@@ -946,9 +946,11 @@ void PreferencesDialog::set_dark_mode()
 // Sync the MD3 runtime density + accent token state (MD3Tokens.hpp) to the
 // persisted Appearance choices. Called at Preferences construction so the tokens
 // reflect the user's saved selection; widgets/dialogs built afterwards read the
-// active density metrics and the accent-recoloured roles. (Applying the accent
-// at first-window startup — before any Preferences dialog exists — is
-// restart-scoped; see the followup.)
+// active density metrics and the accent-recoloured roles. The same persisted
+// state is also applied at process startup in GUI_App::on_init_inner (before
+// the first window is built), so a saved choice takes effect on a fresh launch;
+// this construction-time sync keeps the tokens honest if the config changed
+// underneath a running process.
 static void apply_persisted_md3_appearance()
 {
     auto *cfg = wxGetApp().app_config;
@@ -959,7 +961,13 @@ static void apply_persisted_md3_appearance()
     std::string seed = cfg->get("ui_accent_seed");
     if (seed.empty())
         seed = "#146c2e"; // Brand seed clears the override -> pristine Brand tones
-    MD3::setAccentSeed(wxColour(wxString::FromUTF8(seed)));
+    wxColour seed_colour(wxString::FromUTF8(seed));
+    // A hand-corrupted persisted value parses to an invalid wxColour whose RGB
+    // reads as black; fall back to the Brand seed (clears the override) rather
+    // than seeding a near-black accent.
+    if (!seed_colour.IsOk())
+        seed_colour = wxColour(wxString::FromUTF8("#146c2e"));
+    MD3::setAccentSeed(seed_colour);
 }
 
 // Re-theme the live UI after an Appearance accent/density change, reusing the
@@ -1489,6 +1497,13 @@ void PreferencesDialog::create()
     auto *content_pane = new wxBoxSizer(wxVERTICAL);
     m_search = new SearchField(this, _L("Search settings"));
     content_pane->Add(m_search, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, FromDIP(16));
+    // Inline "no results" hint under the search pill; hidden until an active
+    // query matches nothing (see apply_search_filter).
+    m_search_empty_hint = new wxStaticText(this, wxID_ANY, _L("No settings match your search."));
+    m_search_empty_hint->SetForegroundColour(StateColor::semantic(MD3::Role::OnSurfaceVariant));
+    m_search_empty_hint->SetFont(::Label::Body_13);
+    m_search_empty_hint->Hide();
+    content_pane->Add(m_search_empty_hint, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP(16));
     content_pane->Add(m_book, 1, wxEXPAND | wxTOP, FromDIP(12));
 
     // Section rail (left) + content pane (right).
@@ -1517,6 +1532,12 @@ void PreferencesDialog::create()
     m_book->SetSelection(0);
     m_tabbar->Bind(wxEVT_CHOICE, [this](wxCommandEvent &e) { m_book->SetSelection(e.GetInt()); });
 
+    // Wire the search pill to live row filtering across every section. The row
+    // index is built once here, after all pages and their gates (e.g. the
+    // model-mall visibility toggle) have settled.
+    build_search_index();
+    m_search->SetOnQuery([this](const wxString &query) { apply_search_filter(query); });
+
     main_sizer->Add(body_row, 1, wxEXPAND);
     main_sizer->Add(create_bottom_buttons(), 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(12));
 
@@ -1543,6 +1564,241 @@ void PreferencesDialog::create()
     CenterOnParent();
     wxPoint start_pos = this->GetPosition();
     if (start_pos.y < 0) { this->SetPosition(wxPoint(start_pos.x, 0)); }
+}
+
+// ============================================================================
+//  Live settings search — SearchField-driven row filtering across all pages.
+// ============================================================================
+
+// Collect every wxStaticText descendant of a window (row labels, descriptions,
+// link labels — ::Label derives from wxStaticText) for the search index.
+static void collect_search_labels_from_window(wxWindow *win, std::vector<wxStaticText *> &labels)
+{
+    if (win == nullptr) return;
+    if (auto *text = dynamic_cast<wxStaticText *>(win)) labels.push_back(text);
+    for (auto *child : win->GetChildren()) collect_search_labels_from_window(child, labels);
+}
+
+static void collect_search_labels_from_sizer(wxSizer *sizer, std::vector<wxStaticText *> &labels)
+{
+    if (sizer == nullptr) return;
+    for (auto *item : sizer->GetChildren()) {
+        if (item->IsWindow()) collect_search_labels_from_window(item->GetWindow(), labels);
+        else if (item->IsSizer()) collect_search_labels_from_sizer(item->GetSizer(), labels);
+    }
+}
+
+// Normalized (wrap-break-free) label text for matching. wxStaticText::Wrap
+// rewrites the label with '\n' at the break points; fold those back to spaces
+// so multi-word queries match across a wrapped line.
+static wxString search_label_text(const wxStaticText *label)
+{
+    wxString text = label->GetLabelText();
+    text.Replace("\n", " ");
+    return text;
+}
+
+void PreferencesDialog::build_search_index()
+{
+    m_search_rows.clear();
+    if (m_book == nullptr) return;
+
+    for (size_t page = 0; page < m_book->GetPageCount(); ++page) {
+        wxWindow *page_win = m_book->GetPage(page);
+        wxSizer  *sizer    = page_win ? page_win->GetSizer() : nullptr;
+        if (sizer == nullptr) continue;
+
+        for (auto *item : sizer->GetChildren()) {
+            if (item == nullptr || item->IsSpacer()) continue; // inter-row spacers stay put
+
+            SearchRow row;
+            row.page           = int(page);
+            row.item           = item;
+            row.baseline_shown = item->IsShown();
+            if (item->IsWindow()) collect_search_labels_from_window(item->GetWindow(), row.labels);
+            else if (item->IsSizer()) collect_search_labels_from_sizer(item->GetSizer(), row.labels);
+
+            wxString haystack;
+            for (auto *label : row.labels) {
+                if (!haystack.empty()) haystack << ' ';
+                haystack << search_label_text(label);
+            }
+            row.haystack = haystack.Lower();
+            // Section headers are the Head_16 titles from create_item_title().
+            row.is_title = !row.labels.empty() && row.labels.front()->GetFont() == ::Label::Head_16;
+            m_search_rows.push_back(std::move(row));
+        }
+    }
+}
+
+void PreferencesDialog::clear_search_highlights()
+{
+    for (auto &entry : m_search_saved_colours) {
+        if (entry.first == nullptr) continue;
+        entry.first->SetForegroundColour(entry.second);
+        entry.first->Refresh();
+    }
+    m_search_saved_colours.clear();
+}
+
+void PreferencesDialog::scroll_search_row_into_view(const SearchRow &row)
+{
+    auto *scrolled = dynamic_cast<wxScrolledWindow *>(m_book->GetPage(row.page));
+    if (scrolled == nullptr) return;
+
+    wxWindow *anchor = nullptr;
+    if (!row.labels.empty()) anchor = row.labels.front();
+    else if (row.item && row.item->IsWindow()) anchor = row.item->GetWindow();
+    if (anchor == nullptr) return;
+
+    // Anchor position relative to the scrolled page (current view coords) ->
+    // virtual coords -> scroll units.
+    wxPoint   pos = anchor->GetPosition();
+    wxWindow *w   = anchor->GetParent();
+    while (w != nullptr && w != scrolled) {
+        pos += w->GetPosition();
+        w = w->GetParent();
+    }
+    if (w == nullptr) return; // anchor is not a descendant of the page
+
+    int virtual_x = 0, virtual_y = 0;
+    scrolled->CalcUnscrolledPosition(pos.x, pos.y, &virtual_x, &virtual_y);
+    int unit_x = 0, unit_y = 0;
+    scrolled->GetScrollPixelsPerUnit(&unit_x, &unit_y);
+    if (unit_y <= 0) return;
+    scrolled->Scroll(-1, std::max(0, virtual_y - FromDIP(8)) / unit_y);
+}
+
+void PreferencesDialog::apply_search_filter(const wxString &raw_query)
+{
+    wxString query = raw_query;
+    query.Trim(true).Trim(false);
+    if (query.empty()) {
+        reset_search_filter();
+        return;
+    }
+
+    m_search_active     = true;
+    m_search_last_query = query;
+    clear_search_highlights();
+
+    const wxString needle    = query.Lower();
+    const wxColour highlight = StateColor::semantic(MD3::Role::Primary);
+    const size_t   count     = m_search_rows.size();
+
+    // Pass 1: per-row match against the label haystack. Baseline-hidden rows
+    // (e.g. model-mall entries without a mall) never participate.
+    std::vector<bool> matched(count, false);
+    for (size_t i = 0; i < count; ++i) {
+        const SearchRow &row = m_search_rows[i];
+        if (!row.baseline_shown || row.haystack.empty()) continue;
+        matched[i] = row.haystack.Find(needle) != wxNOT_FOUND;
+    }
+
+    // Pass 2: group visibility. A group is a Head_16 title row plus the rows
+    // that follow it on the same page (up to the next title). A matching title
+    // keeps its whole group visible for context; otherwise the title stays
+    // only when at least one of its rows matches, and only those rows remain.
+    size_t i = 0;
+    while (i < count) {
+        const int page  = m_search_rows[i].page;
+        size_t    title = count;
+        size_t    start = i;
+        if (m_search_rows[i].is_title) { title = i; start = i + 1; }
+        size_t end = start;
+        while (end < count && m_search_rows[end].page == page && !m_search_rows[end].is_title) ++end;
+
+        const bool title_matched   = title < count && matched[title];
+        bool       any_row_matched = false;
+        for (size_t j = start; j < end; ++j)
+            if (matched[j]) any_row_matched = true;
+
+        if (title < count)
+            m_search_rows[title].item->Show(m_search_rows[title].baseline_shown && (title_matched || any_row_matched));
+        for (size_t j = start; j < end; ++j)
+            m_search_rows[j].item->Show(m_search_rows[j].baseline_shown && (title_matched || matched[j]));
+
+        i = end;
+    }
+
+    // Highlight the matched labels (Primary tint); the pre-highlight colour is
+    // saved so an emptied query restores the exact original foreground.
+    auto tint = [this, &highlight](wxStaticText *label) {
+        if (label == nullptr) return;
+        if (m_search_saved_colours.find(label) == m_search_saved_colours.end())
+            m_search_saved_colours.emplace(label, label->GetForegroundColour());
+        label->SetForegroundColour(highlight);
+        label->Refresh();
+    };
+    for (size_t k = 0; k < count; ++k) {
+        if (!matched[k]) continue;
+        const SearchRow &row      = m_search_rows[k];
+        bool             any_tint = false;
+        for (auto *label : row.labels) {
+            if (search_label_text(label).Lower().Find(needle) != wxNOT_FOUND) {
+                tint(label);
+                any_tint = true;
+            }
+        }
+        if (!any_tint && !row.labels.empty()) tint(row.labels.front()); // matched across labels
+    }
+
+    // Relayout every page for the new row visibility.
+    for (size_t p = 0; p < m_book->GetPageCount(); ++p) {
+        wxWindow *page_win = m_book->GetPage(p);
+        if (page_win == nullptr) continue;
+        page_win->Layout();
+        if (auto *scrolled = dynamic_cast<wxScrolledWindow *>(page_win)) scrolled->FitInside();
+    }
+
+    // First match in page order; prefer the section already on screen so
+    // typing does not yank the user away from a page that also matches.
+    size_t first_match = count;
+    for (size_t k = 0; k < count; ++k)
+        if (matched[k]) { first_match = k; break; }
+    size_t    nav_match    = count;
+    const int current_page = m_book->GetSelection();
+    for (size_t k = 0; k < count; ++k)
+        if (matched[k] && m_search_rows[k].page == current_page) { nav_match = k; break; }
+    if (nav_match == count) nav_match = first_match;
+
+    const bool has_match = first_match < count;
+    if (m_search_empty_hint) m_search_empty_hint->Show(!has_match);
+    Layout();
+
+    if (has_match) {
+        const SearchRow &target = m_search_rows[nav_match];
+        if (m_book->GetSelection() != target.page) {
+            m_book->SetSelection(target.page);
+            m_tabbar->SetSelection(target.page);
+        }
+        // Re-layout the now-visible page before measuring the anchor position.
+        if (wxWindow *page_win = m_book->GetPage(target.page)) page_win->Layout();
+        scroll_search_row_into_view(target);
+    }
+}
+
+void PreferencesDialog::reset_search_filter()
+{
+    if (!m_search_active) return;
+    m_search_active = false;
+    m_search_last_query.clear();
+
+    clear_search_highlights();
+    for (auto &row : m_search_rows)
+        if (row.item) row.item->Show(row.baseline_shown);
+    if (m_search_empty_hint) m_search_empty_hint->Hide();
+
+    for (size_t p = 0; p < m_book->GetPageCount(); ++p) {
+        wxWindow *page_win = m_book->GetPage(p);
+        if (page_win == nullptr) continue;
+        page_win->Layout();
+        if (auto *scrolled = dynamic_cast<wxScrolledWindow *>(page_win)) {
+            scrolled->FitInside();
+            scrolled->Scroll(0, 0);
+        }
+    }
+    Layout();
 }
 
 PreferencesDialog::~PreferencesDialog()
@@ -1689,7 +1945,16 @@ wxWindow *PreferencesDialog::create_appearance_tab()
         const bool dark = e.GetInt() == 1;
         app_config->set("dark_color_mode", dark ? "1" : "0");
         app_config->save();
+        // An active search tints matched labels and remembers their pre-tint
+        // foregrounds. Restore those before the theme fan-out recolours the
+        // tree, then re-run the query afterwards so the highlights — and the
+        // saved-colour map — capture the new theme's colours instead of stale
+        // pre-toggle ones (which a later cleared query would otherwise restore).
+        const bool     search_was_active = m_search_active;
+        const wxString saved_query       = m_search_last_query;
+        if (search_was_active) clear_search_highlights();
         apply_dark_mode(dark);
+        if (search_was_active) apply_search_filter(saved_query);
         e.Skip();
     });
 

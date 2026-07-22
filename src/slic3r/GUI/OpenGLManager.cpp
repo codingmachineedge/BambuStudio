@@ -4,6 +4,7 @@
 #include "GUI.hpp"
 #include "I18N.hpp"
 #include "3DScene.hpp"
+#include "MsgDialog.hpp"
 
 #include "libslic3r/Platform.hpp"
 #include "slic3r/GUI/GLTexture.hpp"
@@ -410,7 +411,12 @@ bool OpenGLManager::init_gl(bool popup_error)
                     _utf8(L("The application cannot run normally because OpenGL version is lower than 2.0.\n")))).str());
                 message += "\n";
                 message += _L("Please upgrade your graphics card driver.");
-                wxMessageBox(message, _L("Unsupported OpenGL version"), wxOK | wxICON_ERROR);
+                // MD3 MessageDialog: init_gl runs from a live, shown GL canvas
+                // (GLCanvas3D/GCodeViewer render paths), so the mainframe window
+                // hierarchy and GUI_App fonts/dark-mode state provably exist;
+                // MsgDialog auto-parents to the mainframe.
+                MessageDialog msg_dlg(nullptr, message, _L("Unsupported OpenGL version"), wxOK | wxICON_ERROR);
+                msg_dlg.ShowModal();
             }
         }
 
@@ -423,7 +429,10 @@ bool OpenGLManager::init_gl(bool popup_error)
                 if (popup_error) {
                     wxString message = from_u8((boost::format(
                         _utf8(L("Unable to load shaders:\n%s"))) % error).str());
-                    wxMessageBox(message, _L("Error loading shaders"), wxOK | wxICON_ERROR);
+                    // MD3 MessageDialog: same rationale as the version popup
+                    // above — the window hierarchy is alive at this point.
+                    MessageDialog msg_dlg(nullptr, message, _L("Error loading shaders"), wxOK | wxICON_ERROR);
+                    msg_dlg.ShowModal();
                 }
             }
         }

@@ -7,10 +7,12 @@
 #include <wx/simplebook.h>
 #include <wx/dialog.h>
 #include <wx/sizer.h>
+#include <wx/stattext.h>
 #include <wx/timer.h>
 #include <vector>
 #include <list>
 #include <map>
+#include <unordered_map>
 #include "Widgets/ComboBox.hpp"
 #include "Widgets/CheckBox.hpp"
 #include "Widgets/TextInput.hpp"
@@ -61,6 +63,33 @@ protected:
     wxSimplebook *    m_book   = nullptr;
     SearchField *     m_search = nullptr;
     std::vector<MultiSwitchButton *> m_segmented_list; // Appearance segmented controls (rescale)
+
+    // --- Live settings search (SearchField -> row filtering) ----------------
+    // One entry per direct row (sizer or window) of every settings page,
+    // indexed once after the pages are built. `haystack` is the lowercased
+    // concatenation of the row's wxStaticText labels; `baseline_shown`
+    // snapshots the row's construction-time visibility (e.g. the model-mall
+    // rows) so a search reset never reveals rows another gate hid.
+    struct SearchRow
+    {
+        int                          page = 0;         // m_book page (nav section)
+        wxSizerItem                 *item = nullptr;   // row item in the page sizer
+        std::vector<wxStaticText *>  labels;           // label windows inside the row
+        wxString                     haystack;         // lowercased label text
+        bool                         is_title = false; // Head_16 section header row
+        bool                         baseline_shown = true;
+    };
+    std::vector<SearchRow>                       m_search_rows;
+    std::unordered_map<wxStaticText *, wxColour> m_search_saved_colours; // pre-highlight foregrounds
+    wxStaticText                                *m_search_empty_hint = nullptr;
+    bool                                         m_search_active     = false;
+    wxString                                     m_search_last_query; // trimmed active query ("" when inactive)
+
+    void build_search_index();
+    void apply_search_filter(const wxString &query);
+    void reset_search_filter();
+    void clear_search_highlights();
+    void scroll_search_row_into_view(const SearchRow &row);
 
     bool m_seq_top_layer_only_changed{false};
     bool m_recreate_GUI{false};
