@@ -35,6 +35,7 @@
 #include "Widgets/AMSControl.hpp"
 #include "Widgets/FilamentLoad.hpp"
 #include "Widgets/FanControl.hpp"
+#include "Widgets/MD3Dialog.hpp"
 #include "HMS.hpp"
 #include "PartSkipDialog.hpp"
 #include "DeviceErrorDialog.hpp"
@@ -184,7 +185,7 @@ private:
     time_t m_last_ctrl_time = 0;
 };
 
-class ScoreDialog : public GUI::DPIDialog
+class ScoreDialog : public GUI::MD3Dialog
 {
 public:
     ScoreDialog(wxWindow *parent, int design_id, std::string model_id, int profile_id, int rating_id, bool success_printed, int star_count = 0);

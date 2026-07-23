@@ -1408,3 +1408,7 @@ msgstr "稀疏填充圖案"
 #. reviewed-category: slicing-printing
 msgid "Enable support"
 msgstr "啟用支撐"
+
+#. reviewed-category: connection-offline
+msgid "Load"
+msgstr "入料"

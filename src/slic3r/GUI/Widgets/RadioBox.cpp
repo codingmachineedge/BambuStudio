@@ -99,10 +99,11 @@ wxBitmap RadioBox::renderBitmap(bool selected, bool disabled) const
             if (MaterialIcon::available()) {
                 const uint32_t cp = selected ? MaterialIcon::RadioButtonChecked
                                              : MaterialIcon::RadioButtonUnchecked;
-                gc->SetFont(MaterialIcon::font(kRadioPx), colour);
-                double tw = 0, th = 0;
-                gc->GetTextExtent(MaterialIcon::text(cp), &tw, &th);
-                gc->DrawText(MaterialIcon::text(cp), (kRadioPx - tw) / 2, (kRadioPx - th) / 2);
+                // The variable icon face must not reach GDI+ as a font (heap
+                // corruption); composite a plain-GDI raster.
+                const wxBitmap gb = MaterialIcon::bitmapPx(cp, kRadioPx, colour, scale);
+                const double   tw = gb.GetWidth() / scale, th = gb.GetHeight() / scale;
+                gc->DrawBitmap(gb, (kRadioPx - tw) / 2, (kRadioPx - th) / 2, tw, th);
                 drawn = true;
             }
             if (!drawn) {

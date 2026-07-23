@@ -7,6 +7,7 @@
 #include "MultiTaskManagerPage.hpp"
 #include "MultiMachineManagerPage.hpp"
 #include "Tabbook.hpp"
+#include "Widgets/MD3Dialog.hpp"
 
 #include "wx/button.h"
 
@@ -69,13 +70,15 @@ public:
 
 public:
     bool m_hover{ false };
-    ScalableBitmap m_bitmap_check_disable;
-    ScalableBitmap m_bitmap_check_off;
-    ScalableBitmap m_bitmap_check_on;
+    // Selection checkbox glyph (Widgets/CheckBox.hpp): drawn live per-paint via
+    // CheckBox::RenderGlyphBitmap, sharing the same MD3 anatomy as the CheckBox
+    // widget instead of the legacy check_off_disabled/check_off_focused/check_on
+    // raster PNGs. kCheckboxPx is the logical box size drawn in doRender().
+    static constexpr int kCheckboxPx = 18;
 };
 
 
-class MultiMachinePickPage : public DPIDialog
+class MultiMachinePickPage : public MD3Dialog
 {
 private:
     AppConfig*          app_config;

@@ -254,6 +254,26 @@ retention/pruning policy.
   clean incremental build of the final tree was launched and a runtime smoke on it is the
   mandatory next gate (the staged capture scripts make the screenshot retry fast). Until that
   smoke passes, no runtime-health claim is made for the shipped tree.
+  **Startup crash root-caused and fixed (2026-07-22/23, user-reported 'App not launching'):**
+  deterministic heap corruption (0xc0000374) during MainFrame construction, WinDbg-dumped to
+  MaterialIcon::bitmap -> wxGDIPlusContext: the Material Symbols face is a VARIABLE TTF
+  (fvar/gvar) and rendering it through GDI+ corrupts the heap (GDI is fine). Fix: MaterialIcon
+  glyphs are now rasterized exclusively with plain GDI (shared glyph_image core; draw/measure/
+  bitmap/bitmapPx all GDI+-free) and every gc->SetFont(MaterialIcon::font(...)) site
+  (CheckBox/RadioBox/CameraHUD/AxisCtrlButton/StatusPanel/BBLTopbar) composites pre-rendered
+  bitmaps. Debug-heap masking (_NO_DEBUG_HEAP=1) and a poisoned MSBuild tracker (stale objs/libs
+  silently skipping compile+link, which also hid a get_extruder_color_icons signature drift)
+  prolonged the hunt; local builds in this worktree now force-link before trusting results.
+  **Sonnet conformance double-check (15 agents): 114 done-rows re-verified, 51 findings
+  adversarially confirmed, 24 fixed + 2 partial in-tree** (ScoreDialog/MultiMachinePickPage onto
+  the shell, SideTools/TempInput/ProgressBar de-legacied, star-rating + picker-checkbox glyphs,
+  preview polish, swatch ring geometry, i18n literals). Register truth-reconciled to
+  **123 done / 3 deviations / 5 open**: the stale XY-grid deviation flipped to done (the grid IS
+  implemented), three over-claimed rows reopened (Process card completion, ObjectList row
+  anatomy, section-header literal-class swap), and two audit-discovered rows added (ReleaseNote
+  sibling shells, ProgressDialog shell). Those five need one build-in-the-loop follow-up wave.
+  A locally built portable-ZIP preview release ships once the fixed binary passes the launch
+  stress test; CI releases continue per push via the TOKEN_GITHUB path.
 - Capture and review fresh full-compositor screenshots of the fully token-migrated native surfaces
   and replace the pre-sweep captures above.
 - Repair/re-enable the aggregate and `libnest2d_tests` suites instead of relying on the focused waiver.

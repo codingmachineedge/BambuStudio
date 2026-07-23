@@ -15,7 +15,9 @@ END_EVENT_TABLE()
 ProgressBar::ProgressBar(wxWindow *parent, wxWindowID id, int max, const wxPoint &pos, const wxSize &size, bool shown)
 {
     m_shownumber = shown;
-    SetBackgroundColour(ThemeColor::White);
+    // Theme-adaptive erase colour matching the track's own SurfaceContainerHighest
+    // fill, instead of a raw white literal that showed through in dark mode.
+    SetBackgroundColour(StateColor::semantic(MD3::Role::SurfaceContainerHighest));
 
     if (size.y >= miniHeight) {
         m_miniHeight = size.y;

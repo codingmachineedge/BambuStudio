@@ -1269,7 +1269,7 @@ void AMSLib::render_generic_text(wxDC &dc)
     dc.SetTextForeground(temp_text_colour);
     auto alpha = m_info.material_colour.Alpha();
     if (alpha != 0 && alpha != 255 && alpha != 254) {
-        dc.SetTextForeground(*wxBLACK);
+        dc.SetTextForeground(AMS_CONTROL_GRAY800);
     }
 
     auto libsize = GetSize();

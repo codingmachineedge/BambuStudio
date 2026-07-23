@@ -166,13 +166,14 @@ void CameraHUD::CameraHUDChip::on_paint(wxPaintEvent &)
 
     const wxColour gcol = IsEnabled() ? CameraHUD::Glyph() : CameraHUD::GlyphMuted();
     if (MaterialIcon::available()) {
-        // font(px) takes LOGICAL px; the graphics context scales the point size
-        // by DPI, so a fixed logical size keeps the glyph/chip ratio constant
-        // across HiDPI (mirrors the AxisCtrlButton proving site).
-        gc->SetFont(MaterialIcon::font(kChipGlyphPx), gcol);
-        wxDouble gw = 0, gh = 0;
-        gc->GetTextExtent(MaterialIcon::text(m_glyph), &gw, &gh);
-        gc->DrawText(MaterialIcon::text(m_glyph), (sz.x - gw) / 2.0, (sz.y - gh) / 2.0);
+        // The variable icon face must not reach GDI+ as a font (heap
+        // corruption); composite a plain-GDI raster at device resolution
+        // (bitmapPx applies the DPI factor, matching the old point-size
+        // scaling the graphics context performed).
+        const double   ds = GetDPIScaleFactor() > 0.0 ? GetDPIScaleFactor() : 1.0;
+        const wxBitmap gb = MaterialIcon::bitmapPx(m_glyph, kChipGlyphPx, gcol, ds);
+        gc->DrawBitmap(gb, (sz.x - gb.GetWidth()) / 2.0, (sz.y - gb.GetHeight()) / 2.0,
+                       gb.GetWidth(), gb.GetHeight());
     } else if (m_fallback.bmp().IsOk()) {
         const wxBitmap &b = m_fallback.bmp();
         gc->DrawBitmap(b, (sz.x - b.GetScaledWidth()) / 2.0, (sz.y - b.GetScaledHeight()) / 2.0, b.GetScaledWidth(),

@@ -84,24 +84,82 @@ wxFont font(int px)
     return f;
 }
 
-wxSize measure(wxDC &dc, uint32_t cp, int px)
+wxSize measure(wxDC &, uint32_t cp, int px)
 {
-    const wxFont saved = dc.GetFont();
-    dc.SetFont(font(px));
-    const wxSize sz = dc.GetTextExtent(text(cp));
-    dc.SetFont(saved);
+    // Deliberately measured through a private plain-GDI probe DC rather than
+    // the caller's DC: a wxGCDC caller would otherwise hand the variable icon
+    // face to GDI+ just to build the measuring font (heap corruption). The
+    // extent of a fixed-size glyph face is DC-independent.
+    wxBitmap   probe(1, 1);
+    wxMemoryDC mdc(probe);
+    mdc.SetFont(font(px));
+    const wxSize sz = mdc.GetTextExtent(text(cp));
+    mdc.SelectObject(wxNullBitmap);
     return sz;
+}
+
+// Plain-GDI glyph rasterizer shared by every public entry point. The icon face
+// is a VARIABLE TTF (fvar/gvar) registered privately; rendering it through
+// GDI+ (wxGraphicsContext / wxGCDC text) intermittently corrupts the process
+// heap — the startup-crash dump bottomed out in exactly that path. GDI renders
+// the variable font's default instance correctly, so the glyph is drawn
+// black-on-white with GDI and converted to a colour+alpha image.
+static wxImage glyph_image(uint32_t cp, int dev_px, const wxColour &colour)
+{
+    const wxFont fdev = font(std::max(1, dev_px));
+    wxSize       dev;
+    {
+        wxBitmap   probe(1, 1);
+        wxMemoryDC mdc(probe);
+        mdc.SetFont(fdev);
+        dev = mdc.GetTextExtent(text(cp));
+        mdc.SelectObject(wxNullBitmap);
+    }
+    if (dev.x < 1) dev.x = std::max(1, dev_px);
+    if (dev.y < 1) dev.y = std::max(1, dev_px);
+
+    wxBitmap mono(dev.x, dev.y, 24);
+    {
+        wxMemoryDC mdc(mono);
+        mdc.SetBackground(*wxWHITE_BRUSH);
+        mdc.Clear();
+        mdc.SetFont(fdev);
+        mdc.SetTextForeground(*wxBLACK);
+        mdc.SetBackgroundMode(wxTRANSPARENT);
+        mdc.DrawText(text(cp), 0, 0);
+        mdc.SelectObject(wxNullBitmap);
+    }
+
+    wxImage cov = mono.ConvertToImage();
+    wxImage out(dev.x, dev.y);
+    out.InitAlpha();
+    const unsigned char r = colour.Red(), g = colour.Green(), b = colour.Blue();
+    unsigned char *src = cov.GetData();
+    unsigned char *dst = out.GetData();
+    unsigned char *al  = out.GetAlpha();
+    const size_t   n   = static_cast<size_t>(dev.x) * static_cast<size_t>(dev.y);
+    for (size_t i = 0; i < n; ++i) {
+        const unsigned int lum = (src[3 * i] + src[3 * i + 1] + src[3 * i + 2]) / 3;
+        dst[3 * i]     = r;
+        dst[3 * i + 1] = g;
+        dst[3 * i + 2] = b;
+        al[i]          = static_cast<unsigned char>(255u - lum);
+    }
+    return out;
 }
 
 void draw(wxDC &dc, uint32_t cp, int px, const wxColour &colour, const wxPoint &topLeft)
 {
-    const wxFont   savedFont = dc.GetFont();
-    const wxColour savedFg   = dc.GetTextForeground();
-    dc.SetFont(font(px));
-    dc.SetTextForeground(colour);
-    dc.DrawText(text(cp), topLeft);
-    dc.SetFont(savedFont);
-    dc.SetTextForeground(savedFg);
+    // Composite a pre-rasterized glyph instead of DrawText: callers pass plain
+    // DCs and wxGCDCs alike, and the variable icon face must never reach GDI+.
+    dc.DrawBitmap(wxBitmap(glyph_image(cp, px, colour), 32), topLeft, true);
+}
+
+wxBitmap bitmapPx(uint32_t cp, int px, const wxColour &colour, double scale)
+{
+    ensureRegistered();
+    const int dev_px = std::max(1, static_cast<int>(std::lround(px * (scale > 0.0 ? scale : 1.0))));
+    return wxBitmap(glyph_image(cp, dev_px, colour), 32);
 }
 
 void drawCentered(wxDC &dc, uint32_t cp, int px, const wxColour &colour, const wxRect &rect)
@@ -117,48 +175,8 @@ wxBitmap bitmap(wxWindow *dpiRef, uint32_t cp, int px, const wxColour &colour)
 
     double scale = (dpiRef && dpiRef->GetDPIScaleFactor() > 0.0) ? dpiRef->GetDPIScaleFactor() : 1.0;
 
-    const wxFont f = font(px);
-
-    // Logical extent, measured through a scratch memory DC at base (96) DPI.
-    wxSize logical;
-    {
-        wxBitmap   probe(1, 1);
-        wxMemoryDC mdc(probe);
-        mdc.SetFont(f);
-        logical = mdc.GetTextExtent(text(cp));
-        mdc.SelectObject(wxNullBitmap);
-    }
-    if (logical.x < 1)
-        logical.x = std::max(1, px);
-    if (logical.y < 1)
-        logical.y = std::max(1, px);
-
-    const int dev_w = std::max(1, static_cast<int>(std::ceil(logical.x * scale)));
-    const int dev_h = std::max(1, static_cast<int>(std::ceil(logical.y * scale)));
-
-    // Transparent 32-bpp canvas, then antialiased glyph via wxGraphicsContext
-    // (matches the AA / alpha of the existing ScalableBitmap SVG icons). Mirrors
-    // the transparent-chip idiom used elsewhere in the GUI.
-    wxBitmap bmp(dev_w, dev_h);
-#if defined(__WXMSW__) || defined(__WXOSX__)
-    bmp.UseAlpha();
-#endif
-    {
-        wxMemoryDC dc(bmp);
-        dc.SetBackground(*wxTRANSPARENT_BRUSH);
-        dc.Clear();
-
-        wxGraphicsContext *gc = wxGraphicsContext::Create(dc);
-        if (gc) {
-            gc->SetAntialiasMode(wxANTIALIAS_DEFAULT);
-            gc->Scale(scale, scale);
-            gc->SetFont(f, colour);
-            gc->DrawText(text(cp), 0, 0);
-            delete gc; // flush the graphics context before the bitmap is read
-        }
-        dc.SelectObject(wxNullBitmap);
-    }
-
+    const int dev_px = std::max(1, static_cast<int>(std::lround(px * scale)));
+    wxBitmap  bmp(glyph_image(cp, dev_px, colour), 32);
 #if wxCHECK_VERSION(3, 1, 6)
     bmp.SetScaleFactor(scale); // lay out at logical px on HiDPI
 #endif

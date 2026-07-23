@@ -35,7 +35,9 @@ public:
     double   m_proportion                 = {0};
     wxColour m_progress_background_colour = StateColor::semantic(MD3::Role::SurfaceContainerHighest);
     wxColour m_progress_colour            = StateColor::semantic(MD3::Role::Primary);
-    wxColour m_progress_colour_disable    = ThemeColor::Warning;
+    // Blocked/disabled progress state resolved through the Error role (the kit
+    // has no separate Warning role); replaces the raw ThemeColor::Warning literal.
+    wxColour m_progress_colour_disable    = StateColor::semantic(MD3::Role::Error);
     wxString m_disable_text;
     
 

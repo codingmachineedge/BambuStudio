@@ -14,7 +14,9 @@
 #define SIDE_TOOLS_GREY900 ThemeColor::TextPrimary
 #define SIDE_TOOLS_GREY600 ThemeColor::Grey450
 #define SIDE_TOOLS_GREY400 ThemeColor::Grey400
-#define SIDE_TOOLS_BRAND ThemeColor::BrandGreen
+// Device-teal Primary accent (kit Device.jsx), replacing the plain Brand-green
+// literal this panel previously carried regardless of workspace context.
+#define SIDE_TOOLS_BRAND (StateColor::semantic(MD3::Role::Primary, MD3::ColorScheme::Device))
 #define SIDE_TOOLS_LIGHT_GREEN StateColor::semantic(MD3::Role::SecondaryContainer)
 
 enum WifiSignal {

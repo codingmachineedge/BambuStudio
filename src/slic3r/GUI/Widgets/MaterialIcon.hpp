@@ -208,6 +208,13 @@ void drawCentered(wxDC &dc, uint32_t cp, int px, const wxColour &colour, const w
 // carries its scale factor so it lays out at logical px on HiDPI.
 wxBitmap bitmap(wxWindow *dpiRef, uint32_t cp, int px, const wxColour &colour);
 
+// Raw device-pixel glyph bitmap (no wx scale factor attached): rendered at
+// px * scale device pixels with plain GDI + derived alpha. For callers that
+// composite into an already-scaled wxGraphicsContext — the variable icon face
+// must never be handed to GDI+ as a font (heap corruption), so GC callers draw
+// this bitmap instead of using gc->SetFont(MaterialIcon::font(...)).
+wxBitmap bitmapPx(uint32_t cp, int px, const wxColour &colour, double scale = 1.0);
+
 } // namespace MaterialIcon
 
 #endif // !slic3r_GUI_MaterialIcon_hpp_

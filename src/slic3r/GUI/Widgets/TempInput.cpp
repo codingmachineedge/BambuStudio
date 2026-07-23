@@ -63,14 +63,22 @@ END_EVENT_TABLE()
 
 
 TempInput::TempInput()
-    : label_color(std::make_pair(ThemeColor::Grey450, (int) StateColor::Disabled), std::make_pair(ThemeColor::TextSecondary, (int) StateColor::Normal))
-    , text_color(std::make_pair(ThemeColor::Grey450, (int) StateColor::Disabled), std::make_pair(ThemeColor::TextMuted, (int) StateColor::Normal))
+    // MD3 ValueField anatomy (Device.jsx:49-60): Outline-role text, dimmed further
+    // when disabled.
+    : label_color(std::make_pair(StateColor::semantic(MD3::Role::Outline), (int) StateColor::Disabled), std::make_pair(StateColor::semantic(MD3::Role::OnSurfaceVariant), (int) StateColor::Normal))
+    , text_color(std::make_pair(StateColor::semantic(MD3::Role::Outline), (int) StateColor::Disabled), std::make_pair(StateColor::semantic(MD3::Role::OnSurfaceVariant), (int) StateColor::Normal))
 {
     hover  = false;
-    radius = 0;
-    border_color = StateColor(std::make_pair(ThemeColor::White, (int) StateColor::Disabled), std::make_pair(ThemeColor::BrandGreen, (int) StateColor::Focused), std::make_pair(ThemeColor::BrandGreen, (int) StateColor::Hovered),
-                 std::make_pair(ThemeColor::White, (int) StateColor::Normal));
-    background_color = StateColor(std::make_pair(ThemeColor::White, (int) StateColor::Disabled), std::make_pair(ThemeColor::White, (int) StateColor::Normal));
+    radius = 0; // DPI-scaled to the kit's r10 field radius in Create() (FromDIP needs a live window).
+    // MD3 ValueField border: OutlineVariant at rest/disabled, Device-scheme
+    // Primary on hover/focus (replacing the raw White/BrandGreen literals).
+    border_color = StateColor(std::make_pair(StateColor::semantic(MD3::Role::OutlineVariant), (int) StateColor::Disabled),
+                 std::make_pair(StateColor::semantic(MD3::Role::Primary, MD3::ColorScheme::Device), (int) StateColor::Focused),
+                 std::make_pair(StateColor::semantic(MD3::Role::Primary, MD3::ColorScheme::Device), (int) StateColor::Hovered),
+                 std::make_pair(StateColor::semantic(MD3::Role::OutlineVariant), (int) StateColor::Normal));
+    // MD3 ValueField fill: SurfaceContainerHighest (kit "sc-highest fill").
+    background_color = StateColor(std::make_pair(StateColor::semantic(MD3::Role::SurfaceContainerHighest), (int) StateColor::Disabled),
+                 std::make_pair(StateColor::semantic(MD3::Role::SurfaceContainerHighest), (int) StateColor::Normal));
     SetFont(Label::Body_12);
 }
 
@@ -125,12 +133,16 @@ bool TempInput::CheckIsValidVal(bool show_warning)
 void TempInput::Create(wxWindow *parent, wxString text, wxString label, wxString normal_icon, wxString actice_icon, const wxPoint &pos, const wxSize &size, long style)
 {
     StaticBox::Create(parent, wxID_ANY, pos, size, style);
+    // MD3 ValueField/SelectField geometry: r10 (kit Device.jsx field anatomy),
+    // matching the SetCornerRadius(FromDIP(10)) convention used by the
+    // migrated SelectField combo boxes elsewhere (e.g. Preferences.cpp).
+    SetCornerRadius(FromDIP(10));
     wxWindow::SetLabel(label);
     style &= ~wxALIGN_CENTER_HORIZONTAL;
     state_handler.attach({&label_color, &text_color});
     state_handler.update_binds();
     text_ctrl = new wxTextCtrl(this, wxID_ANY, text, {5, 5}, wxDefaultSize, wxTE_PROCESS_ENTER | wxBORDER_NONE, wxTextValidator(wxFILTER_NUMERIC), wxTextCtrlNameStr);
-    text_ctrl->SetBackgroundColour(StateColor::darkModeColorFor(ThemeColor::White));
+    text_ctrl->SetBackgroundColour(StateColor::semantic(MD3::Role::SurfaceContainerHighest));
     text_ctrl->SetMaxLength(3);
     state_handler.attach_child(text_ctrl);
     text_ctrl->Bind(wxEVT_SET_FOCUS, [this](auto &e) {
@@ -300,14 +312,14 @@ void TempInput::Warning(bool warn, WarningType type)
     if (warning_mode) {
         if (wdialog == nullptr) {
             wdialog = new PopupWindow(this);
-            wdialog->SetBackgroundColour(ThemeColor::White);
+            wdialog->SetBackgroundColour(StateColor::semantic(MD3::Role::SurfaceContainer));
 
             wdialog->SetSizeHints(wxDefaultSize, wxDefaultSize);
 
             wxBoxSizer *sizer_body = new wxBoxSizer(wxVERTICAL);
 
             auto body = new wxPanel(wdialog, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL);
-            body->SetBackgroundColour(ThemeColor::White);
+            body->SetBackgroundColour(StateColor::semantic(MD3::Role::SurfaceContainer));
 
 
             wxBoxSizer *sizer_text;
@@ -320,7 +332,8 @@ void TempInput::Warning(bool warn, WarningType type)
                                             wxDefaultPosition, wxDefaultSize,
                                             wxALIGN_CENTER_HORIZONTAL);
             warning_text->SetFont(::Label::Body_12);
-            warning_text->SetForegroundColour(ThemeColor::Warning);
+            // No dedicated MD3 Warning role; Error is the semantically closest.
+            warning_text->SetForegroundColour(StateColor::semantic(MD3::Role::Error));
             warning_text->Wrap(-1);
             sizer_text->Add(warning_text, 1, wxEXPAND | wxTOP | wxBOTTOM, 2);
 
@@ -532,10 +545,14 @@ void TempInput::render(wxDC &dc)
     bool   align_right = GetWindowStyle() & wxRIGHT;
 
     if (warning_mode) {
-        border_color = ThemeColor::Warning;
+        // No dedicated MD3 Warning role; Error is the semantically closest
+        // (matches the WARNING_TOO_HIGH/LOW popup text colour below).
+        border_color = StateColor::semantic(MD3::Role::Error);
     } else {
-        border_color = StateColor(std::make_pair(ThemeColor::White, (int) StateColor::Disabled), std::make_pair(ThemeColor::BrandGreen, (int) StateColor::Focused),
-                                  std::make_pair(ThemeColor::BrandGreen, (int) StateColor::Hovered), std::make_pair(ThemeColor::White, (int) StateColor::Normal));
+        border_color = StateColor(std::make_pair(StateColor::semantic(MD3::Role::OutlineVariant), (int) StateColor::Disabled),
+                                  std::make_pair(StateColor::semantic(MD3::Role::Primary, MD3::ColorScheme::Device), (int) StateColor::Focused),
+                                  std::make_pair(StateColor::semantic(MD3::Role::Primary, MD3::ColorScheme::Device), (int) StateColor::Hovered),
+                                  std::make_pair(StateColor::semantic(MD3::Role::OutlineVariant), (int) StateColor::Normal));
     }
 
     dc.SetBrush(*wxTRANSPARENT_BRUSH);
@@ -611,11 +628,11 @@ void TempInput::render(wxDC &dc)
     labelSize = dc.GetMultiLineTextExtent(wxWindow::GetLabel());
 
     if (!IsEnabled()) {
-        dc.SetTextForeground(ThemeColor::Grey450);
+        dc.SetTextForeground(StateColor::semantic(MD3::Role::Outline));
         dc.SetTextBackground(background_color.colorForStates((int) StateColor::Disabled));
     }
     else {
-        dc.SetTextForeground(ThemeColor::TextSecondary);
+        dc.SetTextForeground(StateColor::semantic(MD3::Role::OnSurfaceVariant));
         dc.SetTextBackground(background_color.colorForStates((int) states));
     }
 
@@ -631,7 +648,7 @@ void TempInput::render(wxDC &dc)
         pt.y = (size.y - labelSize.y) / 2;
     }
 
-    dc.SetTextForeground(StateColor::darkModeColorFor(ThemeColor::TextSecondary));
+    dc.SetTextForeground(StateColor::semantic(MD3::Role::OnSurfaceVariant));
     dc.DrawText(text, pt);
 
     // separator "/" in the target's mono 12 face, OnSurfaceVariant when enabled

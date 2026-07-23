@@ -112,6 +112,62 @@ static wxBitmap topbar_make_canvas(wxWindow *ref, const wxSize &logical, Paint p
     return bmp;
 }
 
+// Render a text run with plain GDI into a colour+alpha bitmap at device
+// resolution. The privately registered faces (Material Symbols, Roboto Mono)
+// must never go through wxGraphicsContext: GDI+ cannot resolve private HFONTs
+// and intermittently corrupts its heap doing so (the startup heap-corruption
+// crash dump bottomed out in exactly that path). Plain GDI resolves private
+// faces correctly; alpha is derived from black-on-white coverage.
+static wxBitmap topbar_text_alpha(const wxFont &logical_font, double scale,
+                                  const wxString &s, const wxColour &colour)
+{
+    wxFont f = logical_font;
+    if (scale != 1.0) {
+        const wxSize ps = f.GetPixelSize();
+        if (ps.y > 0)
+            f.SetPixelSize(wxSize(0, std::max(1, static_cast<int>(std::lround(ps.y * scale)))));
+        else
+            f.SetPointSize(std::max(1, static_cast<int>(std::lround(f.GetPointSize() * scale))));
+    }
+    wxSize dev;
+    {
+        wxBitmap   probe(1, 1);
+        wxMemoryDC mdc(probe);
+        mdc.SetFont(f);
+        dev = mdc.GetTextExtent(s);
+        mdc.SelectObject(wxNullBitmap);
+    }
+    if (dev.x < 1) dev.x = 1;
+    if (dev.y < 1) dev.y = 1;
+    wxBitmap mono(dev.x, dev.y, 24);
+    {
+        wxMemoryDC mdc(mono);
+        mdc.SetBackground(*wxWHITE_BRUSH);
+        mdc.Clear();
+        mdc.SetFont(f);
+        mdc.SetTextForeground(*wxBLACK);
+        mdc.SetBackgroundMode(wxTRANSPARENT);
+        mdc.DrawText(s, 0, 0);
+        mdc.SelectObject(wxNullBitmap);
+    }
+    wxImage cov = mono.ConvertToImage();
+    wxImage out(dev.x, dev.y);
+    out.InitAlpha();
+    const unsigned char r = colour.Red(), g = colour.Green(), b = colour.Blue();
+    unsigned char *src = cov.GetData();
+    unsigned char *dst = out.GetData();
+    unsigned char *al  = out.GetAlpha();
+    const size_t   n   = static_cast<size_t>(dev.x) * static_cast<size_t>(dev.y);
+    for (size_t i = 0; i < n; ++i) {
+        const unsigned int lum = (src[3 * i] + src[3 * i + 1] + src[3 * i + 2]) / 3;
+        dst[3 * i]     = r;
+        dst[3 * i + 1] = g;
+        dst[3 * i + 2] = b;
+        al[i]          = static_cast<unsigned char>(255u - lum);
+    }
+    return wxBitmap(out, 32);
+}
+
 // §3.1 brand tile: a 26x26 r8 Primary rounded square carrying the on-primary
 // 'deployed_code' glyph, replacing the legacy 22px BambuStudio PNG. Falls back
 // to that raster when the Material Symbols face is unavailable.
@@ -133,9 +189,11 @@ static wxBitmap topbar_brand_tile_bitmap(wxWindow *ref)
         gc->SetPen(*wxTRANSPARENT_PEN);
         gc->SetBrush(wxBrush(StateColor::semantic(MD3::Role::Primary)));
         gc->DrawRoundedRectangle(0, 0, side, side, MD3::Metrics::radius_tiny);
-        gc->SetFont(MaterialIcon::font(glyph), StateColor::semantic(MD3::Role::OnPrimary));
-        gc->DrawText(MaterialIcon::text(MaterialIcon::DeployedCode),
-                     (side - gsz.x) / 2.0, (side - gsz.y) / 2.0);
+        // Private icon face must not go through GDI+ (heap corruption); the
+        // glyph is pre-rendered with plain GDI and composited as a bitmap.
+        const wxBitmap gbmp = MaterialIcon::bitmap(ref, MaterialIcon::DeployedCode, glyph,
+                                                   StateColor::semantic(MD3::Role::OnPrimary));
+        gc->DrawBitmap(gbmp, (side - gsz.x) / 2.0, (side - gsz.y) / 2.0, gsz.x, gsz.y);
     });
 }
 
@@ -183,6 +241,7 @@ static wxBitmap topbar_history_chip_bitmap(wxWindow *ref, const wxString &branch
         W += gap + head_w;
     W += padx;
 
+    const double chip_scale = topbar_scale(ref);
     return topbar_make_canvas(ref, wxSize(W, H), [&](wxGraphicsContext *gc) {
         const wxColour primary = StateColor::semantic(MD3::Role::Primary);
         const wxColour on_sv   = StateColor::semantic(MD3::Role::OnSurfaceVariant);
@@ -192,14 +251,17 @@ static wxBitmap topbar_history_chip_bitmap(wxWindow *ref, const wxString &branch
                                                         : MD3::Role::SurfaceContainer)));
         gc->DrawRoundedRectangle(0, 0, W, H, H / 2.0);
 
+        // Private faces (Material Symbols, Roboto Mono) are pre-rendered with
+        // plain GDI and composited as bitmaps; GDI+ text with private HFONTs
+        // corrupts the heap.
         double x = padx;
         if (icons_ok) {
-            gc->SetFont(MaterialIcon::font(glyph), primary);
-            gc->DrawText(MaterialIcon::text(MaterialIcon::AccountTree), x, (H - glyph_h) / 2.0);
+            const wxBitmap abmp = MaterialIcon::bitmap(ref, MaterialIcon::AccountTree, glyph, primary);
+            gc->DrawBitmap(abmp, x, (H - glyph_h) / 2.0, glyph_w, glyph_h);
             x += glyph_w + gap;
         }
-        gc->SetFont(mono, on_sv);
-        gc->DrawText(branch, x, (H - branch_h) / 2.0);
+        gc->DrawBitmap(topbar_text_alpha(mono, chip_scale, branch, on_sv),
+                       x, (H - branch_h) / 2.0, branch_w, branch_h);
         x += branch_w + gap;
 
         gc->SetPen(*wxTRANSPARENT_PEN);
@@ -209,8 +271,8 @@ static wxBitmap topbar_history_chip_bitmap(wxWindow *ref, const wxString &branch
 
         if (has_head) {
             x += gap;
-            gc->SetFont(mono, on_sv);
-            gc->DrawText(head_str, x, (H - head_h) / 2.0);
+            gc->DrawBitmap(topbar_text_alpha(mono, chip_scale, head_str, on_sv),
+                           x, (H - head_h) / 2.0, head_w, head_h);
         }
     });
 }

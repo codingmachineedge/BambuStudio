@@ -22,6 +22,7 @@ class ComboBox : public wxWindowWithItems<TextInput, wxItemContainer>
     bool     m_applying_chevron = false; // re-entry guard around applyDropChevron()'s SetIcon()->Rescale()
     wxString replace_text;
     wxString image_for_text;
+    MD3::ColorScheme m_scheme = MD3::ColorScheme::Brand;
 
 public:
     ComboBox(wxWindow *      parent,
@@ -39,6 +40,13 @@ public:
     // Note: item bitmaps are set via raw wxBitmap (not ScalableBitmap), so they won't
     // auto-rescale on DPI change. Caller should recreate items after DPI change.
     void SetKeepDropArrow(bool keep) { m_keep_drop_arrow = keep; }
+
+    // Contextual accent scheme (Brand/Preview/Device) for the read-only
+    // SelectField's focus fill and the popup DropDown's selected row, replacing
+    // the fixed MD3::Light::secondaryContainer (always-Brand) tonal. Brand (the
+    // default) is unaffected. Resolved once for the theme active at call time;
+    // re-call after a runtime dark-mode toggle if the scheme is non-Brand.
+    void SetColorScheme(MD3::ColorScheme scheme);
 
     virtual bool SetFont(wxFont const & font) override;
 

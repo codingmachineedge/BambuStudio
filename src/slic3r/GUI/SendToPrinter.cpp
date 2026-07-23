@@ -438,7 +438,7 @@ SendToPrinterDialog::SendToPrinterDialog(Plater *plater)
     // try to connect
     m_statictext_printer_msg = new wxStaticText(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxALIGN_CENTER_HORIZONTAL);
     m_statictext_printer_msg->SetFont(::Label::Body_13);
-    m_statictext_printer_msg->SetForegroundColour(ThemeColor::TextPrimary);
+    m_statictext_printer_msg->SetForegroundColour(StateColor::semantic(MD3::Role::OnSurface));
     m_statictext_printer_msg->Hide();
 
     wxBoxSizer *m_sizer_connecting      = new wxBoxSizer(wxHORIZONTAL);
@@ -628,7 +628,7 @@ SendToPrinterDialog::SendToPrinterDialog(Plater *plater)
     rename_sizer_h = new wxBoxSizer(wxHORIZONTAL);
 
     m_rename_text = new wxStaticText(m_rename_normal_panel, wxID_ANY, wxT("MyLabel"), wxDefaultPosition, wxDefaultSize, wxST_ELLIPSIZE_END);
-    m_rename_text->SetForegroundColour(ThemeColor::TextPrimary);
+    m_rename_text->SetForegroundColour(StateColor::semantic(MD3::Role::OnSurface));
     m_rename_text->SetFont(::Label::Body_13);
     m_rename_text->SetMaxSize(wxSize(FromDIP(390), -1));
     m_rename_button = new Button(m_rename_normal_panel, "", "ams_editable", wxBORDER_NONE, FromDIP(10));

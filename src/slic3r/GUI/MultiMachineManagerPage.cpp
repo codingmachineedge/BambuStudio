@@ -463,7 +463,7 @@ MultiMachineManagerPage::MultiMachineManagerPage(wxWindow* parent)
     m_button_add->SetBorderColor(m_btn_bg_enable);
     m_button_add->SetTextColor(StateColor::semantic(MD3::Role::OnPrimary));
     m_button_add->SetFont(Label::Body_12);
-    m_button_add->SetCornerRadius(6);
+    m_button_add->SetCornerRadius(FromDIP(18));
     m_button_add->SetMinSize(wxSize(FromDIP(90), FromDIP(36)));
     m_button_add->SetMaxSize(wxSize(FromDIP(90), FromDIP(36)));
 

@@ -219,10 +219,12 @@ void AxisCtrlButton::render(wxDC& dc)
                                     : text_color.colorForStates(st);
 
         if (MaterialIcon::available()) {
-            gc->SetFont(MaterialIcon::font(glyph_px), glyph_col);
-            wxDouble gw = 0, gh = 0;
-            gc->GetTextExtent(MaterialIcon::text(s.glyph), &gw, &gh);
-            gc->DrawText(MaterialIcon::text(s.glyph), r.x + (r.width - gw) / 2, r.y + (r.height - gh) / 2);
+            // The variable icon face must not reach GDI+ as a font (heap
+            // corruption); composite a plain-GDI raster. glyph_px is already
+            // in this context's device coordinate space.
+            const wxBitmap gb = MaterialIcon::bitmapPx(s.glyph, glyph_px, glyph_col);
+            gc->DrawBitmap(gb, r.x + (r.width - gb.GetWidth()) / 2, r.y + (r.height - gb.GetHeight()) / 2,
+                           gb.GetWidth(), gb.GetHeight());
         } else if (isHome && m_icon.bmp().IsOk()) {
             gc->DrawBitmap(m_icon.bmp(), r.x + (r.width - m_icon.GetBmpWidth()) / 2,
                            r.y + (r.height - m_icon.GetBmpHeight()) / 2, m_icon.GetBmpWidth(), m_icon.GetBmpHeight());

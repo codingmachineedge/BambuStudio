@@ -831,6 +831,7 @@ void IMSlider::draw_ticks(const ImRect& slideable_region) {
         return;
 
     ImGuiContext &context       = *GImGui;
+    ImGuiWrapper &imgui         = *wxGetApp().imgui();
 
     ImVec2 tick_box      = ImVec2(52.0f, 16.0f) * m_scale;
     ImVec2 tick_offset   = ImVec2(22.0f, 14.0f) * m_scale;
@@ -886,9 +887,23 @@ void IMSlider::draw_ticks(const ImRect& slideable_region) {
 
         //draw pause icon
         if (tick_it->type == PausePrint) {
-            ImTextureID pause_icon_id = m_pause_icon_id;
-            ImVec2      icon_pos     = ImVec2(slideable_region.GetCenter().x + icon_offset.x, tick_pos - icon_offset.y);
-            button_with_pos(pause_icon_id, icon_size, icon_pos);
+            ImVec2 icon_pos = ImVec2(slideable_region.GetCenter().x + icon_offset.x, tick_pos - icon_offset.y);
+            if (imgui.material_icons_available()) {
+                // MD3: Material Symbols 'pause' glyph replaces the im_gcode_pause
+                // raster, matching the transport play/pause button's semantic
+                // (IMSlider::horizontal_slider draw_glyph(...MaterialIcon::Pause...)).
+                ImFont            *icon_font  = imgui.get_icon_font();
+                const std::string  glyph      = ImGuiWrapper::material_icon(MaterialIcon::Pause);
+                const ImU32        glyph_clr  = preview_color(MD3::Role::OnSurfaceVariant, m_is_dark);
+                const ImVec2       glyph_c    = icon_pos + icon_size * 0.5f;
+                const ImVec2       glyph_size = icon_font->CalcTextSizeA(icon_size.y, FLT_MAX, 0.0f, glyph.c_str());
+                ImGui::GetWindowDrawList()->AddText(icon_font, icon_size.y, glyph_c - glyph_size * 0.5f, glyph_clr, glyph.c_str());
+            } else {
+                // Capability fallback: legacy raster SVG when the merged Material
+                // Symbols atlas face is unavailable.
+                ImTextureID pause_icon_id = m_pause_icon_id;
+                button_with_pos(pause_icon_id, icon_size, icon_pos);
+            }
         }
         if (tick_it->type == Custom || tick_it->type == Template) {
             ImTextureID custom_icon_id = m_custom_icon_id;
@@ -1015,7 +1030,7 @@ bool IMSlider::vertical_slider(const char* str_id, int* higher_value, int* lower
     const float  bar_width           = 28.0f * m_scale;
 
     // Value chip per the MD3 kit 'Z' chip: r8 rounding, SurfaceContainer fill, mono value.
-    const float  text_frame_rounding = 8.0f * m_scale;
+    const float  text_frame_rounding = static_cast<float>(MD3::Metrics::radius_tiny) * m_scale;
     const ImVec2 text_padding        = ImVec2(5.0f, 2.0f) * m_scale;
     const ImVec2 triangle_offsets[3] = {ImVec2(2.0f, 0.0f) * m_scale, ImVec2(0.0f, 8.0f) * m_scale, ImVec2(9.0f, 0.0f) * m_scale};
     ImVec2 text_content_size;

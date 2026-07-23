@@ -69,7 +69,8 @@ ComboBox::ComboBox(wxWindow *parent,
         // SecondaryContainer for the read-only focus tint (the MD3 selected/active
         // tonal, replacing the raw 0xEDFAF2), SurfaceContainerHigh for disabled.
         // Each light role value is a gDarkColors key, so colorForStates()
-        // re-adapts it live on a dark-mode toggle.
+        // re-adapts it live on a dark-mode toggle. (SetColorScheme() re-applies
+        // this for a non-Brand accent -- see below.)
         TextInput::SetBackgroundColor(StateColor(std::make_pair(MD3::Light::scHigh, (int) StateColor::Disabled),
             std::make_pair(MD3::Light::secondaryContainer, (int) StateColor::Focused),
             std::make_pair(MD3::Light::scHighest, (int) StateColor::Normal)));
@@ -90,6 +91,22 @@ ComboBox::ComboBox(wxWindow *parent,
         GetEventHandler()->ProcessEvent(e);
     });
     for (int i = 0; i < n; ++i) Append(choices[i]);
+}
+
+void ComboBox::SetColorScheme(MD3::ColorScheme scheme)
+{
+    m_scheme = scheme;
+    drop.SetColorScheme(scheme);
+    if (GetWindowStyle() & wxCB_READONLY) {
+        // Re-tint just the SecondaryContainer focus fill for this scheme; the
+        // Disabled/Normal entries stay the gDarkColors-mapped light values so
+        // they keep re-adapting on a runtime dark-mode toggle exactly as before.
+        const wxColour focus_fill = scheme == MD3::ColorScheme::Brand ? MD3::Light::secondaryContainer
+                                                                       : StateColor::semantic(MD3::Role::SecondaryContainer, scheme);
+        TextInput::SetBackgroundColor(StateColor(std::make_pair(MD3::Light::scHigh, (int) StateColor::Disabled),
+            std::make_pair(focus_fill, (int) StateColor::Focused),
+            std::make_pair(MD3::Light::scHighest, (int) StateColor::Normal)));
+    }
 }
 
 int ComboBox::GetSelection() const {

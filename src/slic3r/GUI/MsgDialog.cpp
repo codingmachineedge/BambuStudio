@@ -380,27 +380,13 @@ PostProcessScriptDialog::PostProcessScriptDialog(wxWindow* parent, const wxStrin
     content_sizer->Add(m_script_text, 0, wxEXPAND | wxBOTTOM, FromDIP(8));
 
     m_toggle_details = new Button(this, _L("Collapse") + " \u2227", "", 0, 0, wxID_ANY);
-    m_toggle_details->SetMinSize(wxSize(FromDIP(120), FromDIP(24)));
-    m_toggle_details->SetCornerRadius(FromDIP(12));
-    m_toggle_details->SetFont(Label::Body_12);
-    StateColor btn_bg_white(
-        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SurfaceContainer), StateColor::Pressed),
-        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::SurfaceContainerHigh), StateColor::Hovered),
-        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Surface), StateColor::Normal)
-    );
-    StateColor btn_bd_white(
-        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Outline), StateColor::Pressed),
-        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Outline), StateColor::Hovered),
-        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Outline), StateColor::Normal)
-    );
-    StateColor btn_text_white(
-        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnSurfaceVariant), StateColor::Pressed),
-        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnSurfaceVariant), StateColor::Hovered),
-        std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OnSurfaceVariant), StateColor::Normal)
-    );
-    m_toggle_details->SetBackgroundColor(btn_bg_white);
-    m_toggle_details->SetBorderColor(btn_bd_white);
-    m_toggle_details->SetTextColor(btn_text_white);
+    // Kit control geometry (actions/Button): Text variant + Small size resolves
+    // the pill radius (height/2) and OnSurfaceVariant text/outline through the
+    // same SetVariant()/SetButtonSize() path as the footer buttons below,
+    // replacing the fixed 120x24 MinSize + SetCornerRadius(12) + hand-rolled
+    // StateColor blocks this body-area toggle previously carried.
+    m_toggle_details->SetVariant(Button::Variant::Text);
+    m_toggle_details->SetButtonSize(Button::Size::Small);
     m_toggle_details->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
         m_details_expanded = !m_details_expanded;
         m_script_text->Show(m_details_expanded);

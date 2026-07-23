@@ -40,6 +40,7 @@
 #include <wx/bmpcbox.h>
 #include <wx/statbox.h>
 #include <wx/statbmp.h>
+#include <wx/graphics.h>
 #include <wx/filedlg.h>
 #include <wx/dnd.h>
 #include <wx/progdlg.h>
@@ -281,7 +282,9 @@ wxDEFINE_EVENT(EVT_HELIO_PROCESSING_STARTED, SimpleEvent);
 wxDEFINE_EVENT(EVT_HELIO_INPUT_DLG, SimpleEvent);
 // end helio
 
-#define PRINTER_THUMBNAIL_SIZE (wxSize(FromDIP(48), FromDIP(48)))
+// Kit printer-identity thumbnail (prepare/printer-identity-card-combobox-anatomy):
+// 52x52 cell, r12 corners.
+#define PRINTER_THUMBNAIL_SIZE (wxSize(FromDIP(52), FromDIP(52)))
 // MD3 kit printer identity card (Prepare.jsx:78-85): content-sized, pad 10 —
 // the legacy fixed 68px PRINTER_PANEL_SIZE / 84px BED_PANEL_SIZE cards are gone.
 #define BTN_SYNC_SIZE (wxSize(-1, FromDIP(MD3::Metrics::active().row_height)))
@@ -764,9 +767,11 @@ struct Sidebar::priv
 
     // BBS printer config
     StaticBox* m_panel_printer_title = nullptr;
-    ScalableButton* m_printer_icon = nullptr;
+    // Shared MD3 SectionHeader (content-sized, no fixed-height bar) replacing
+    // the former m_printer_icon ScalableButton + m_text_printer_settings label
+    // pair; m_printer_setting stays a trailing IconButton alongside it.
+    SectionHeader* m_printer_header = nullptr;
     ScalableButton* m_printer_setting = nullptr;
-    wxStaticText *  m_text_printer_settings = nullptr;
     wxPanel* m_panel_printer_content = nullptr;
 
     ObjectList          *m_object_list{ nullptr };
@@ -2586,6 +2591,70 @@ static void apply_scalable_glyph(ScalableButton *btn, uint32_t glyph, int px, co
     btn->SetBitmap(MaterialIcon::bitmap(btn, glyph, px, colour));
 }
 
+// Kit printer identity card thumbnail (prepare/printer-identity-card-combobox-
+// anatomy): a 52x52 r12 cell on SurfaceContainerLowest with a 1px OutlineVariant
+// border, replacing the bare raw raster bitmap. When no model-specific preview
+// PNG exists (is_placeholder), draws a centered 30px 'print' Material Symbol
+// glyph instead of the flat placeholder raster; otherwise composites the real
+// printer photo into the same rounded cell. Falls back to the placeholder
+// raster verbatim when the icon face is unavailable. Mirrors the DPI/alpha
+// compositing already established by StatusPanel.cpp's device_idle_thumbnail_tile.
+static wxBitmap build_printer_thumbnail_cell(wxWindow *ref, const wxBitmap &source, bool is_placeholder)
+{
+    const int    logical_px = 52; // kit cell side
+    const double scale      = (ref && ref->GetDPIScaleFactor() > 0.0) ? ref->GetDPIScaleFactor() : 1.0;
+    const int    dev        = std::max(1, static_cast<int>(std::ceil(logical_px * scale)));
+    wxBitmap     bmp(dev, dev);
+#if defined(__WXMSW__) || defined(__WXOSX__)
+    bmp.UseAlpha();
+#endif
+    {
+        wxMemoryDC mdc(bmp);
+        mdc.SetBackground(*wxTRANSPARENT_BRUSH);
+        mdc.Clear();
+        const bool     dark    = wxGetApp().dark_mode();
+        const wxColour cell_bg = MD3::resolve(MD3::Role::SurfaceContainerLowest, dark);
+        const wxColour border  = MD3::resolve(MD3::Role::OutlineVariant, dark);
+        const double   radius  = static_cast<double>(MD3::Metrics::radius_rail); // r12
+
+        wxGraphicsContext *gc = wxGraphicsContext::Create(mdc);
+        if (gc) {
+            gc->SetAntialiasMode(wxANTIALIAS_DEFAULT);
+            gc->Scale(scale, scale); // logical 0..logical_px coordinates
+
+            gc->SetPen(*wxTRANSPARENT_PEN);
+            gc->SetBrush(wxBrush(cell_bg));
+            gc->DrawRoundedRectangle(0, 0, logical_px, logical_px, radius);
+
+            wxGraphicsPath clip = gc->CreatePath();
+            clip.AddRoundedRectangle(0, 0, logical_px, logical_px, radius);
+            gc->Clip(clip);
+
+            if (is_placeholder && MaterialIcon::available()) {
+                const int      glyph_px  = 30;
+                const wxColour glyph_col = MD3::resolve(MD3::Role::OnSurfaceVariant, dark);
+                const wxBitmap gb = MaterialIcon::bitmapPx(MaterialIcon::Print, glyph_px, glyph_col, scale);
+                const double   gw = gb.GetWidth() / scale, gh = gb.GetHeight() / scale;
+                gc->DrawBitmap(gb, (logical_px - gw) / 2.0, (logical_px - gh) / 2.0, gw, gh);
+            } else if (source.IsOk()) {
+                gc->DrawBitmap(source, 0, 0, logical_px, logical_px);
+            }
+            gc->ResetClip();
+
+            gc->SetPen(wxPen(border, 1));
+            gc->SetBrush(*wxTRANSPARENT_BRUSH);
+            gc->DrawRoundedRectangle(0.5, 0.5, logical_px - 1.0, logical_px - 1.0, radius);
+
+            delete gc; // flush before the bitmap is read
+        }
+        mdc.SelectObject(wxNullBitmap);
+    }
+#if wxCHECK_VERSION(3, 1, 6)
+    bmp.SetScaleFactor(scale);
+#endif
+    return bmp;
+}
+
 Sidebar::Sidebar(Plater *parent)
     : wxPanel(parent, wxID_ANY, wxDefaultPosition,
               wxSize(parent->FromDIP(MD3::Metrics::active().sidebar_width), -1))
@@ -2646,17 +2715,10 @@ Sidebar::Sidebar(Plater *parent)
         p->m_panel_printer_title->SetBackgroundColor(title_bg);
         p->m_panel_printer_title->SetBackgroundColor2(title_bg);
 
-        p->m_printer_icon = new ScalableButton(p->m_panel_printer_title, wxID_ANY, "printer");
-        p->m_text_printer_settings = new Label(p->m_panel_printer_title, _L("Printer").Upper(), LB_PROPAGATE_MOUSE_EVENT);
-        // MD3 section-header typography: 11px/600 uppercase, OnSurfaceVariant.
-        p->m_text_printer_settings->SetFont(Label::Head_11);
-        p->m_text_printer_settings->SetForegroundColour(StateColor::semantic(MD3::Role::OnSurfaceVariant));
-
-        p->m_printer_icon->Bind(wxEVT_BUTTON, [this](wxCommandEvent& e) {
-            //auto wizard_t = new ConfigWizard(wxGetApp().mainframe);
-            //wizard_t->run(ConfigWizard::RR_USER, ConfigWizard::SP_CUSTOM);
-            });
-
+        // Shared MD3 SectionHeader (containment/SectionHeader): content-sized,
+        // no fixed-height bar -- replaces the former ScalableButton + wxStaticText
+        // pair built from the raster 'printer' bitmap.
+        p->m_printer_header = new SectionHeader(p->m_panel_printer_title, _L("Printer"), MaterialIcon::Print);
 
         p->m_printer_setting = new ScalableButton(p->m_panel_printer_title, wxID_ANY, "settings");
         p->m_printer_setting->Bind(wxEVT_BUTTON, [this](wxCommandEvent &e) {
@@ -2667,20 +2729,14 @@ Sidebar::Sidebar(Plater *parent)
             wxGetApp().run_wizard(ConfigWizard::RR_USER, ConfigWizard::SP_PRINTERS);
             });
 
-        // MD3 SectionHeader anatomy: leading 'print' glyph + trailing 'settings'
-        // glyph from the Material Symbols face (OnSurfaceVariant), retiring the
-        // raster 'printer'/'settings' bitmaps. The label already carries the
-        // 11px/600 OnSurfaceVariant section-label type set above.
-        apply_scalable_glyph(p->m_printer_icon, MaterialIcon::Print, 16, StateColor::semantic(MD3::Role::OnSurfaceVariant));
+        // MD3 SectionHeader anatomy: trailing 'settings' glyph from the Material
+        // Symbols face (OnSurfaceVariant), retiring the raster 'settings' bitmap.
         apply_scalable_glyph(p->m_printer_setting, MaterialIcon::Settings, 16, StateColor::semantic(MD3::Role::OnSurfaceVariant));
 
         wxBoxSizer* h_sizer_title = new wxBoxSizer(wxHORIZONTAL);
-        h_sizer_title->Add(p->m_printer_icon, 0, wxALIGN_CENTRE | wxLEFT | wxRIGHT, em);
-        h_sizer_title->Add(p->m_text_printer_settings, 0, wxALIGN_CENTER);
-        h_sizer_title->AddStretchSpacer();
+        h_sizer_title->Add(p->m_printer_header, 1, wxALIGN_CENTER | wxLEFT | wxRIGHT, em);
         h_sizer_title->Add(p->m_printer_setting, 0, wxALIGN_CENTER);
         h_sizer_title->Add(15 * em / 10, 0, 0, 0, 0);
-        h_sizer_title->SetMinSize(-1, 3 * em);
 
         p->m_panel_printer_title->SetSizer(h_sizer_title);
         p->m_panel_printer_title->Layout();
@@ -2693,13 +2749,19 @@ Sidebar::Sidebar(Plater *parent)
 
         // add printer title
         scrolled_sizer->Add(p->m_panel_printer_title, 0, wxEXPAND | wxALL, 0);
-        p->m_panel_printer_title->Bind(wxEVT_LEFT_DOWN, [this] (auto & e) {
+        auto toggle_printer_content = [this](auto &e) {
             if (p->m_panel_printer_content->GetMaxHeight() == 0)
                 p->m_panel_printer_content->SetMaxSize({-1, -1});
             else
                 p->m_panel_printer_content->SetMaxSize({-1, 0});
             m_scrolled_sizer->Layout();
-        });
+        };
+        p->m_panel_printer_title->Bind(wxEVT_LEFT_DOWN, toggle_printer_content);
+        // m_printer_header is a separate child wxWindow (unlike the old Label's
+        // LB_PROPAGATE_MOUSE_EVENT, plain wxWindows don't forward mouse events to
+        // their parent), so the same collapse toggle is bound here directly to
+        // keep clicking the header title collapsing/expanding the printer card.
+        p->m_printer_header->Bind(wxEVT_LEFT_DOWN, toggle_printer_content);
 
         // add spliter 2
         auto spliter_2 = new ::StaticLine(p->scrolled);
@@ -3021,7 +3083,9 @@ Sidebar::Sidebar(Plater *parent)
     bSizer39->Add(p->m_filament_icon, 0, wxALIGN_CENTER | wxLEFT | wxRIGHT, FromDIP(10));
     bSizer39->Add( p->m_staticText_filament_settings, 0, wxALIGN_CENTER );
     bSizer39->Add(FromDIP(10), 0, 0, 0, 0);
-    bSizer39->SetMinSize(-1, FromDIP(30));
+    // No fixed-height bar: the row sizes to its content (label + any trailing
+    // buttons adjust_filament_title_layout() manages), matching the Printer
+    // section's content-sized SectionHeader.
 
     p->m_panel_filament_title->SetSizer( bSizer39 );
     p->m_panel_filament_title->Layout();
@@ -3267,6 +3331,9 @@ Sidebar::Sidebar(Plater *parent)
                                             wxSize(FromDIP(16), FromDIP(16)), wxDefaultPosition, wxBU_EXACTFIT | wxNO_BORDER);
         icon_add->SetCursor(wxCursor(wxCURSOR_HAND));
         icon_add->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { add_mixed_filament(); });
+        // MD3: Material Symbols 'add' glyph, matching the same raster->glyph swap
+        // already applied to every sibling icon button in this file.
+        apply_scalable_glyph(icon_add, MaterialIcon::Add, 16, active_text);
 
         auto* add_label = new wxStaticText(p->m_btn_add_mixed_filament, wxID_ANY, _L("Add Mixed Filament"),
                                            wxDefaultPosition, wxDefaultSize, wxST_ELLIPSIZE_END);
@@ -3291,10 +3358,13 @@ Sidebar::Sidebar(Plater *parent)
         p->m_panel_mixed_title->SetBackgroundColour(surface_lowest);
         auto* title_sizer = new wxBoxSizer(wxHORIZONTAL);
 
-        p->m_text_mixed_title = new wxStaticText(p->m_panel_mixed_title, wxID_ANY, _L("Mixed Filament"),
+        p->m_text_mixed_title = new wxStaticText(p->m_panel_mixed_title, wxID_ANY, _L("Mixed Filament").Upper(),
                                                    wxDefaultPosition, wxDefaultSize, wxST_ELLIPSIZE_END);
         p->m_text_mixed_title->SetForegroundColour(inactive_text);
-        p->m_text_mixed_title->SetFont(::Label::Body_14);
+        // MD3 section-label typography (containment/SectionHeader): 11px/600
+        // uppercase, matching the Printer/Filament/Objects section headers,
+        // replacing the plain Body_14 regular-weight label.
+        p->m_text_mixed_title->SetFont(::Label::Head_11);
         title_sizer->Add(p->m_text_mixed_title, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(10));
 
         auto* mixed_line_panel = new wxPanel(p->m_panel_mixed_title, wxID_ANY);
@@ -3311,6 +3381,9 @@ Sidebar::Sidebar(Plater *parent)
         p->m_btn_mixed_add = new ScalableButton(p->m_panel_mixed_title, wxID_ANY, "add_filament");
         p->m_btn_mixed_add->SetToolTip(_L("Add mixed filament"));
         p->m_btn_mixed_add->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { add_mixed_filament(); });
+        // MD3: Material Symbols 'add'/'delete' glyphs, matching the raster->glyph
+        // swap already applied to every sibling icon button in this file.
+        apply_scalable_glyph(p->m_btn_mixed_add, MaterialIcon::Add, 16, StateColor::semantic(MD3::Role::OnSurfaceVariant));
         title_sizer->Add(p->m_btn_mixed_add, 0, wxALIGN_CENTER_VERTICAL);
 
         p->m_btn_mixed_del = new ScalableButton(p->m_panel_mixed_title, wxID_ANY, "delete_filament");
@@ -3322,6 +3395,7 @@ Sidebar::Sidebar(Plater *parent)
             if (!indices.empty())
                 delete_mixed_filament_at(indices.size() - 1);
         });
+        apply_scalable_glyph(p->m_btn_mixed_del, MaterialIcon::Delete, 16, StateColor::semantic(MD3::Role::OnSurfaceVariant));
         title_sizer->Add(p->m_btn_mixed_del, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(12));
         title_sizer->Add(FromDIP(16), 0, 0, 0, 0);
 
@@ -4399,14 +4473,15 @@ void Sidebar::change_top_border_for_mode_sizer(bool increase_border)
 void Sidebar::msw_rescale()
 {
     SetMinSize(wxSize(FromDIP(MD3::Metrics::compact.sidebar_width), -1));
-    p->m_panel_printer_title->GetSizer()->SetMinSize(-1, 3 * wxGetApp().em_unit());
-    p->m_panel_filament_title->GetSizer()
-        ->SetMinSize(-1, 3 * wxGetApp().em_unit());
-    p->m_printer_icon->msw_rescale();
+    // No fixed-height title bar: the Printer header is a content-sized
+    // SectionHeader (DPI-safe by construction, no rescale call needed), and the
+    // Filament title row now sizes to its own content the same way.
     p->m_printer_setting->msw_rescale();
     p->btn_connect_printer->msw_rescale();
     p->btn_edit_printer->Rescale();
     p->image_printer->SetSize(PRINTER_THUMBNAIL_SIZE);
+    // Re-composite the MD3 thumbnail cell at the new DPI.
+    update_printer_thumbnail();
     bool exist;
     auto image_path = get_cur_select_bed_image(exist);
     if (exist) { update_bed_thumbnail(image_path); }
@@ -4420,7 +4495,8 @@ void Sidebar::msw_rescale()
     // glyph-based (no-op when the icon face is unavailable).
     {
         const wxColour glyph_col = StateColor::semantic(MD3::Role::OnSurfaceVariant);
-        apply_scalable_glyph(p->m_printer_icon, MaterialIcon::Print, 16, glyph_col);
+        // m_printer_header (SectionHeader) resolves its own leading-glyph colour
+        // live at paint time -- no rescale/reapply call needed.
         apply_scalable_glyph(p->m_printer_setting, MaterialIcon::Settings, 16, glyph_col);
         apply_scalable_glyph(p->btn_connect_printer, MaterialIcon::Lan, 16, glyph_col);
         apply_scalable_glyph(p->m_filament_icon, MaterialIcon::Palette, 16, glyph_col);
@@ -4534,6 +4610,9 @@ void Sidebar::sys_color_changed()
     p->scrolled->SetBackgroundColour(surface_low);
     p->m_panel_printer_title->SetBackgroundColor(surface_low);
     p->m_panel_printer_title->SetBackgroundColor2(surface_low);
+    // SectionHeader captures its background from the parent StaticBox once at
+    // construction; resync it whenever the title panel's own background changes.
+    p->m_printer_header->SetBackgroundColour(StaticBox::GetParentBackgroundColor(p->m_panel_printer_title));
     p->m_panel_printer_content->SetBackgroundColour(surface_lowest);
     const wxColour surface_highest = StateColor::semantic(MD3::Role::SurfaceContainerHighest);
     p->panel_printer_preset->SetBackgroundColor(surface_highest);
@@ -4542,6 +4621,9 @@ void Sidebar::sys_color_changed()
         std::pair<wxColour, int>(StateColor::semantic(MD3::Role::Primary), StateColor::Hovered),
         std::pair<wxColour, int>(StateColor::semantic(MD3::Role::OutlineVariant), StateColor::Normal));
     p->panel_printer_preset->SetBorderColor(card_border);
+    // Re-composite the MD3 thumbnail cell for the new theme (SurfaceContainerLowest
+    // fill / OutlineVariant border / fallback glyph colour all re-resolve).
+    update_printer_thumbnail();
     // MD3 identity card labels re-tint with the theme.
     p->text_printer_name->SetForegroundColour(on_surface);
     p->text_printer_name->SetBackgroundColour(surface_highest);
@@ -4596,8 +4678,6 @@ void Sidebar::sys_color_changed()
     p->btn_sync_printer->SetIcon("printer_sync");
     // for (wxWindow* btn : std::vector<wxWindow*>{ p->btn_reslice, p->btn_export_gcode })
     //    wxGetApp().UpdateDarkUI(btn, true);
-    p->m_printer_icon->msw_rescale();
-    p->m_printer_setting->msw_rescale();
     p->m_printer_setting->msw_rescale();
     p->m_filament_icon->msw_rescale();
     // MD3: the AMS-sync affordance is now a shared Button; semantic StateColors re-resolve
@@ -4605,7 +4685,7 @@ void Sidebar::sys_color_changed()
     if (p->m_btn_sync_ams_header) p->m_btn_sync_ams_header->Rescale();
     // Re-tint the MD3 Material Symbols glyphs to the new theme's OnSurfaceVariant
     // (the raster reloads above would otherwise revert them; no-op without the face).
-    apply_scalable_glyph(p->m_printer_icon, MaterialIcon::Print, 16, on_variant);
+    // m_printer_header (SectionHeader) resolves its own colour live at paint.
     apply_scalable_glyph(p->m_printer_setting, MaterialIcon::Settings, 16, on_variant);
     apply_scalable_glyph(p->m_filament_icon, MaterialIcon::Palette, 16, on_variant);
     p->m_flushing_volume_btn->Rescale();
@@ -6918,11 +6998,21 @@ void Sidebar::update_printer_thumbnail()
     }
 
     // workaround for updating icons too many times, which may casue ui flicking
+    // (dark_now / scale_now additionally invalidate the cache on a theme or DPI
+    // change, since the MD3 cell now bakes both into the composited bitmap).
     static std::string image_name;
-    if (image_name == name && p->image_printer->GetBitmap().IsOk()) return;
+    static bool        image_dark  = false;
+    static double       image_scale = 1.0;
+    const bool   dark_now  = wxGetApp().dark_mode();
+    const double scale_now = GetDPIScaleFactor();
+    if (image_name == name && image_dark == dark_now && image_scale == scale_now && p->image_printer->GetBitmap().IsOk()) return;
 
-    image_name = name;
-    p->image_printer->SetBitmap(create_scaled_bitmap(image_name, this, 48));
+    image_name  = name;
+    image_dark  = dark_now;
+    image_scale = scale_now;
+    const bool is_placeholder = (name == "printer_placeholder");
+    const wxBitmap source = create_scaled_bitmap(image_name, this, 52);
+    p->image_printer->SetBitmap(build_printer_thumbnail_cell(p->image_printer, source, is_placeholder));
 }
 
 void Sidebar::auto_calc_flushing_volumes(const int filament_idx, const int extruder_id) {

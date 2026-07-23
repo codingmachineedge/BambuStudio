@@ -75,12 +75,11 @@ int CheckBox::deviceSide() const
     return std::max(1, static_cast<int>(std::ceil(kCheckBoxPx * scale)));
 }
 
-wxBitmap CheckBox::renderBitmap(bool checked, bool half, bool disabled) const
+wxBitmap CheckBox::RenderGlyphBitmap(int px, double scale, bool checked, bool half, bool disabled, MD3::ColorScheme scheme)
 {
-    double scale = GetDPIScaleFactor();
     if (scale <= 0.0)
         scale = 1.0;
-    const int dev = std::max(1, static_cast<int>(std::ceil(kCheckBoxPx * scale)));
+    const int dev = std::max(1, static_cast<int>(std::ceil(px * scale)));
 
     wxBitmap bmp(dev, dev);
 #if defined(__WXMSW__) || defined(__WXOSX__)
@@ -94,16 +93,16 @@ wxBitmap CheckBox::renderBitmap(bool checked, bool half, bool disabled) const
         wxGraphicsContext *gc = wxGraphicsContext::Create(mdc);
         if (gc) {
             gc->SetAntialiasMode(wxANTIALIAS_DEFAULT);
-            gc->Scale(scale, scale); // draw in logical 0..kCheckBoxPx coordinates
+            gc->Scale(scale, scale); // draw in logical 0..px coordinates
 
-            const wxColour primary    = StateColor::semantic(MD3::Role::Primary, m_scheme);
-            const wxColour onPrimary   = StateColor::semantic(MD3::Role::OnPrimary, m_scheme);
+            const wxColour primary    = StateColor::semantic(MD3::Role::Primary, scheme);
+            const wxColour onPrimary   = StateColor::semantic(MD3::Role::OnPrimary, scheme);
             const wxColour onSurfVar    = StateColor::semantic(MD3::Role::OnSurfaceVariant);
             const wxColour onSurface    = StateColor::semantic(MD3::Role::OnSurface);
             const wxColour surface      = StateColor::semantic(MD3::Role::Surface);
 
             const double inset = 1.0;
-            const double side  = kCheckBoxPx - 2 * inset; // 18px box, 1px breathing room
+            const double side  = px - 2 * inset; // logical box, 1px breathing room
             const double radius = 2.5;
 
             if (!checked && !half) {
@@ -125,24 +124,26 @@ wxBitmap CheckBox::renderBitmap(bool checked, bool half, bool disabled) const
                     const double bw = 10.0, bh = 2.0;
                     gc->SetPen(wxPen(fg));
                     gc->SetBrush(wxBrush(fg));
-                    gc->DrawRoundedRectangle((kCheckBoxPx - bw) / 2, (kCheckBoxPx - bh) / 2, bw, bh, bh / 2);
+                    gc->DrawRoundedRectangle((px - bw) / 2, (px - bh) / 2, bw, bh, bh / 2);
                 } else {
                     bool drawn = false;
                     if (MaterialIcon::available()) {
-                        gc->SetFont(MaterialIcon::font(kCheckBoxPx), fg);
-                        double tw = 0, th = 0;
-                        gc->GetTextExtent(MaterialIcon::text(MaterialIcon::Check), &tw, &th);
-                        gc->DrawText(MaterialIcon::text(MaterialIcon::Check),
-                                     (kCheckBoxPx - tw) / 2, (kCheckBoxPx - th) / 2);
+                        // The variable icon face must not reach GDI+ as a font
+                        // (heap corruption); composite a plain-GDI raster.
+                        const wxBitmap gb = MaterialIcon::bitmapPx(MaterialIcon::Check, px, fg, scale);
+                        const double   tw = gb.GetWidth() / scale, th = gb.GetHeight() / scale;
+                        gc->DrawBitmap(gb, (px - tw) / 2, (px - th) / 2, tw, th);
                         drawn = true;
                     }
                     if (!drawn) {
-                        // Font missing: stroke a checkmark polyline as a fallback.
+                        // Font missing: stroke a checkmark polyline as a fallback,
+                        // scaled from the 20px reference geometry to `px`.
+                        const double k = px / 20.0;
                         gc->SetPen(wxPen(fg, 2));
                         wxGraphicsPath path = gc->CreatePath();
-                        path.MoveToPoint(5.5, 10.5);
-                        path.AddLineToPoint(8.5, 13.5);
-                        path.AddLineToPoint(14.5, 6.5);
+                        path.MoveToPoint(5.5 * k, 10.5 * k);
+                        path.AddLineToPoint(8.5 * k, 13.5 * k);
+                        path.AddLineToPoint(14.5 * k, 6.5 * k);
                         gc->StrokePath(path);
                     }
                 }
@@ -153,6 +154,12 @@ wxBitmap CheckBox::renderBitmap(bool checked, bool half, bool disabled) const
         mdc.SelectObject(wxNullBitmap);
     }
     return bmp;
+}
+
+wxBitmap CheckBox::renderBitmap(bool checked, bool half, bool disabled) const
+{
+    double scale = GetDPIScaleFactor();
+    return RenderGlyphBitmap(kCheckBoxPx, scale, checked, half, disabled, m_scheme);
 }
 
 void CheckBox::update()

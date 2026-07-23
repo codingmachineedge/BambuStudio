@@ -3600,13 +3600,18 @@ namespace Slic3r
 
                 float previousWindowWidth = right;
 
-                auto place_window = [this, text_height, thermal_indexes, top, wnd_height, f_lines_count, start_id, end_id](std::string heading, size_t index_id, float right) {
+                auto place_window = [this, text_height, thermal_indexes, top, wnd_height, f_lines_count, start_id, end_id](std::string heading, std::string label, size_t index_id, float right) {
                     ImGuiWrapper& imgui = *wxGetApp().imgui();
                     const ImGuiStyle& style = ImGui::GetStyle();
                     imgui.set_next_window_pos(right - 0.4f, top, ImGuiCond_Always, 1.0f, 0.0f);
                     imgui.set_next_window_size(0.0f, wnd_height, ImGuiCond_Always);
                     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
                     ImGui::SetNextWindowBgAlpha(0.8f);
+                    // Theme-adaptive panel background (matches the Legend / Preview
+                    // status pill / ExtruderPosition overlays in this file), replacing
+                    // the init_style() legacy COL_WINDOW_BACKGROUND default this
+                    // window previously fell through to.
+                    ImGui::PushStyleColor(ImGuiCol_WindowBg, md3_imgui_color(MD3::Role::SurfaceContainer, m_is_dark));
                     imgui.begin(std::string("Thermal-Index-" + heading), ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove);
 
                     ImDrawList* draw_list = ImGui::GetWindowDrawList();
@@ -3629,7 +3634,9 @@ namespace Slic3r
                     ImGui::SameLine(0.0f, 0.0f);
 
                     // render text lines
-                    imgui.bold_text(" " + heading);
+                    ImGui::PushStyleColor(ImGuiCol_Text, md3_imgui_color(MD3::Role::OnSurfaceVariant, m_is_dark));
+                    imgui.bold_text(" " + label);
+                    ImGui::PopStyleColor();
 
                     char buf[1024];
                     for (uint64_t id = start_id; id <= end_id; ++id) {
@@ -3656,14 +3663,15 @@ namespace Slic3r
 
                     float previousWindowWidth = ImGui::GetCurrentWindow()->Pos.x;
                     imgui.end();
+                    ImGui::PopStyleColor();
                     ImGui::PopStyleVar();
 
                     return previousWindowWidth;
                     };
 
-                previousWindowWidth = place_window("Mean", 2, previousWindowWidth);
-                previousWindowWidth = place_window("Max", 1, previousWindowWidth);
-                previousWindowWidth = place_window("Min", 0, previousWindowWidth);
+                previousWindowWidth = place_window("Mean", _u8L("Mean"), 2, previousWindowWidth);
+                previousWindowWidth = place_window("Max", _u8L("Max"), 1, previousWindowWidth);
+                previousWindowWidth = place_window("Min", _u8L("Min"), 0, previousWindowWidth);
             }
             // end helio
 
@@ -3725,13 +3733,14 @@ namespace Slic3r
                 const ImVec4 SELECTION_RECT_COLOR = md3_imgui_color(MD3::Role::Primary, m_is_dark);
                 // G-code syntax tokens resolved from the MD3 on-surface steps:
                 // command = OnSurface, parameters = OnSurfaceVariant, comment = a
-                // dimmed OnSurfaceVariant. The sequential G-code panel is a fixed
-                // dark translucent overlay (COL_WINDOW_BACKGROUND) in both themes,
-                // so the tokens resolve against the *dark* surface to stay legible.
-                // (Dropped `static` so a theme change is picked up on the next frame.)
-                const ImVec4 COMMAND_COLOR = md3_imgui_color(MD3::Role::OnSurface, true);
-                const ImVec4 PARAMETERS_COLOR = md3_imgui_color(MD3::Role::OnSurfaceVariant, true);
-                const ImVec4 COMMENT_COLOR = md3_imgui_color(MD3::Role::OnSurfaceVariant, true, MD3::ColorScheme::Preview, 0.62f);
+                // dimmed OnSurfaceVariant. The window now pushes a theme-adaptive
+                // SurfaceContainer WindowBg (see ImGuiCol_WindowBg push below,
+                // matching the Legend/Preview-status-pill/ExtruderPosition overlays
+                // in this file), so these tokens resolve against the live app theme
+                // instead of being pinned to the dark palette.
+                const ImVec4 COMMAND_COLOR = md3_imgui_color(MD3::Role::OnSurface, m_is_dark);
+                const ImVec4 PARAMETERS_COLOR = md3_imgui_color(MD3::Role::OnSurfaceVariant, m_is_dark);
+                const ImVec4 COMMENT_COLOR = md3_imgui_color(MD3::Role::OnSurfaceVariant, m_is_dark, MD3::ColorScheme::Preview, 0.62f);
                 if (!m_visible || m_filename.empty() || m_lines_ends.empty() || curr_line_id == 0)
                     return;
                 // window height
@@ -3779,6 +3788,11 @@ namespace Slic3r
                 }
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
                 ImGui::SetNextWindowBgAlpha(0.8f);
+                // Theme-adaptive panel background (matches the Legend / Preview
+                // status pill / ExtruderPosition overlays in this file), replacing
+                // the init_style() legacy COL_WINDOW_BACKGROUND default this window
+                // previously fell through to.
+                ImGui::PushStyleColor(ImGuiCol_WindowBg, md3_imgui_color(MD3::Role::SurfaceContainer, m_is_dark));
                 if (b_show_horizon_slider) {
                     imgui.begin(std::string("G-code"), ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysHorizontalScrollbar);
                 }
@@ -3807,7 +3821,9 @@ namespace Slic3r
                 ImGui::SameLine(0.0f, 0.0f);
 
                 // render text lines
-                imgui.text("GCode");
+                ImGui::PushStyleColor(ImGuiCol_Text, md3_imgui_color(MD3::Role::OnSurfaceVariant, m_is_dark));
+                imgui.text(_u8L("GCode"));
+                ImGui::PopStyleColor();
                 for (uint64_t id = start_id; id <= end_id; ++id) {
                     const Line& line = m_lines[id - start_id];
                     // rect around the current selected line
@@ -3862,6 +3878,7 @@ namespace Slic3r
                 // end helio
 
                 imgui.end();
+                ImGui::PopStyleColor();
                 ImGui::PopStyleVar();
 
                 // helio

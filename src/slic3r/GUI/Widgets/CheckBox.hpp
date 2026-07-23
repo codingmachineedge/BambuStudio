@@ -28,6 +28,16 @@ public:
 
 	void Rescale();
 
+	// Draw a single checkbox glyph state to a DPI-correct, antialiased,
+	// transparent bitmap at logical size `px` (device size = px * scale), so any
+	// custom-painted row can reuse the exact CheckBox anatomy (unchecked =
+	// OnSurfaceVariant rounded-square outline; checked/indeterminate = a filled
+	// Primary/scheme square + Check glyph or bar) instead of hand-painting raster
+	// checkbox bitmaps. Used internally by renderBitmap() and by e.g.
+	// MultiMachinePage's DevicePickItem list-row checkbox.
+	static wxBitmap RenderGlyphBitmap(int px, double scale, bool checked, bool half, bool disabled,
+	                                   MD3::ColorScheme scheme = MD3::ColorScheme::Brand);
+
 #ifdef __WXOSX__
     virtual bool Enable(bool enable = true) wxOVERRIDE;
 #endif

@@ -157,6 +157,12 @@ void DropDown::SetSelectorBackgroundColor(StateColor const &color)
     paintNow();
 }
 
+void DropDown::SetColorScheme(MD3::ColorScheme scheme)
+{
+    m_scheme = scheme;
+    paintNow();
+}
+
 void DropDown::SetUseContentWidth(bool use, bool limit_max_content_width)
 {
     if (use_content_width == use)
@@ -316,7 +322,13 @@ void DropDown::render(wxDC &dc)
         rc.y += rowSize.y * selected_item;
         if (rc.GetBottom() > 0 && rc.y < size.y) {
             rc.Deflate(inset_x, inset_y);
-            dc.SetBrush(wxBrush(selector_background_color.colorForStates(states | StateColor::Checked)));
+            // Non-Brand schemes (Preview/Device) resolve live per paint so the
+            // selected row tints with the owning workspace's accent instead of
+            // always Brand-green; Brand keeps the existing gDarkColors-mapped field.
+            const wxColour fill = m_scheme == MD3::ColorScheme::Brand
+                ? selector_background_color.colorForStates(states | StateColor::Checked)
+                : StateColor::semantic(MD3::Role::SecondaryContainer, m_scheme);
+            dc.SetBrush(wxBrush(fill));
             dc.SetPen(*wxTRANSPARENT_PEN);
             dc.DrawRoundedRectangle(rc, row_radius);
         }

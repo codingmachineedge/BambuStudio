@@ -11,6 +11,21 @@
 #include "../GUI.hpp"
 
 namespace Slic3r { namespace GUI {
+
+// Build a monochrome icon as a Material Symbols glyph rendered at a logical px
+// in colour, degrading to the legacy raster (fallback_name) when the icon face
+// is unavailable. Mirrors the same capability-gated pattern already applied to
+// this file's wifi/wired signal icons (see init_signal_bitmaps()).
+static ScalableBitmap side_tools_glyph_bitmap(wxWindow *ref, uint32_t glyph, int px, const wxColour &colour, const std::string &fallback_name)
+{
+    if (MaterialIcon::available()) {
+        ScalableBitmap sb;
+        sb.bmp() = MaterialIcon::bitmap(ref, glyph, px, colour);
+        return sb;
+    }
+    return ScalableBitmap(ref, fallback_name, px);
+}
+
 	SideToolsPanel::SideToolsPanel(wxWindow *parent, wxWindowID id, const wxPoint &pos, const wxSize &size)
 {
     wxPanel::Create(parent, id, pos, size);
@@ -19,14 +34,21 @@ namespace Slic3r { namespace GUI {
     SetMaxSize(wxSize(-1, FromDIP(50)));
 
     Bind(wxEVT_PAINT, &SideToolsPanel::OnPaint, this);
-    SetBackgroundColour(ThemeColor::White);
+    // Device-page surface (Device.jsx SurfaceDim), replacing the legacy
+    // ThemeColor::White literal.
+    SetBackgroundColour(StateColor::semantic(MD3::Role::SurfaceDim));
 
-    m_printing_img = ScalableBitmap(this, "printer", 16);
-    m_arrow_img    = ScalableBitmap(this, "monitor_arrow", 14);
+    m_printing_img = side_tools_glyph_bitmap(this, MaterialIcon::Print, 16, StateColor::semantic(MD3::Role::Primary, MD3::ColorScheme::Device), "printer");
+    m_arrow_img    = side_tools_glyph_bitmap(this, MaterialIcon::ChevronRight, 14, StateColor::semantic(MD3::Role::OnSurfaceVariant), "monitor_arrow");
 
-    m_none_printing_img = ScalableBitmap(this, "tab_monitor_active", 24);
-    m_none_arrow_img    = ScalableBitmap(this, "monitor_none_arrow", 14);
-    m_none_add_img      = ScalableBitmap(this, "monitor_none_add", 14);
+    // Drawn on the SIDE_TOOLS_BRAND (Device Primary) fill in doRender(), so the
+    // glyph colour is OnPrimary/Device -- correct in both light AND dark theme,
+    // unlike a hardcoded white that would lose contrast once the fill itself
+    // flips to a light teal in dark mode.
+    const wxColour none_state_fg = StateColor::semantic(MD3::Role::OnPrimary, MD3::ColorScheme::Device);
+    m_none_printing_img = side_tools_glyph_bitmap(this, MaterialIcon::Print, 24, none_state_fg, "tab_monitor_active");
+    m_none_arrow_img    = side_tools_glyph_bitmap(this, MaterialIcon::ChevronRight, 14, none_state_fg, "monitor_none_arrow");
+    m_none_add_img      = side_tools_glyph_bitmap(this, MaterialIcon::Add, 14, none_state_fg, "monitor_none_add");
 
     init_signal_bitmaps();
 
@@ -116,12 +138,16 @@ void SideToolsPanel::init_signal_bitmaps()
 
 void SideToolsPanel::msw_rescale()
 {
-    m_printing_img.msw_rescale();
-    m_arrow_img.msw_rescale();
+    // Rebuilt fresh (not .msw_rescale()'d): a glyph-backed ScalableBitmap has no
+    // bundled name to reload from, so it is re-rendered from the Material Symbol
+    // at the new DPI, same as init_signal_bitmaps() below.
+    m_printing_img = side_tools_glyph_bitmap(this, MaterialIcon::Print, 16, StateColor::semantic(MD3::Role::Primary, MD3::ColorScheme::Device), "printer");
+    m_arrow_img    = side_tools_glyph_bitmap(this, MaterialIcon::ChevronRight, 14, StateColor::semantic(MD3::Role::OnSurfaceVariant), "monitor_arrow");
 
-    m_none_printing_img.msw_rescale();
-    m_none_arrow_img.msw_rescale();
-    m_none_add_img.msw_rescale();
+    const wxColour none_state_fg = StateColor::semantic(MD3::Role::OnPrimary, MD3::ColorScheme::Device);
+    m_none_printing_img = side_tools_glyph_bitmap(this, MaterialIcon::Print, 24, none_state_fg, "tab_monitor_active");
+    m_none_arrow_img    = side_tools_glyph_bitmap(this, MaterialIcon::ChevronRight, 14, none_state_fg, "monitor_none_arrow");
+    m_none_add_img      = side_tools_glyph_bitmap(this, MaterialIcon::Add, 14, none_state_fg, "monitor_none_add");
 
     init_signal_bitmaps();
 
@@ -179,7 +205,7 @@ void SideToolsPanel::doRender(wxDC &dc)
         left += (m_none_arrow_img.GetBmpSize().x + FromDIP(6));
         dc.SetFont(::Label::Body_14);
         dc.SetBackgroundMode(wxTRANSPARENT);
-        dc.SetTextForeground(ThemeColor::White);
+        dc.SetTextForeground(StateColor::semantic(MD3::Role::OnPrimary, MD3::ColorScheme::Device));
 
         wxString no_printer_str = _L("No printer");
         auto sizet = dc.GetTextExtent(no_printer_str);
@@ -275,7 +301,9 @@ void SideToolsPanel::on_mouse_leave(wxMouseEvent &evt)
 SideTools::SideTools(wxWindow *parent, wxWindowID id, const wxPoint &pos, const wxSize &size)
 {
     wxPanel::Create(parent, id, pos, size);
-    SetBackgroundColour(ThemeColor::White);
+    // Device-page surface (Device.jsx SurfaceDim), replacing the legacy
+    // ThemeColor::White literal.
+    SetBackgroundColour(StateColor::semantic(MD3::Role::SurfaceDim));
 
     m_side_tools = new SideToolsPanel(this, wxID_ANY);
 
@@ -302,9 +330,13 @@ SideTools::SideTools(wxWindow *parent, wxWindowID id, const wxPoint &pos, const 
     m_hyperlink = new wxHyperlinkCtrl(m_connection_info, wxID_ANY, _L("Failed to connect to the server"), hyperlink_url, wxDefaultPosition, wxDefaultSize, wxHL_DEFAULT_STYLE);
     m_hyperlink->SetBackgroundColour(ThemeColor::Warning);
 
-    m_more_err_open = ScalableBitmap(this, "monitir_err_open", 16);
-    m_more_err_close = ScalableBitmap(this, "monitir_err_close", 16);
+    // MD3: expand/collapse chevron glyph on the warning-fill banner, falling
+    // back to the legacy monitir_err_open/close rasters when the icon face is
+    // unavailable (mirrors the wifi/printer/arrow icons in this file).
+    m_more_err_open  = side_tools_glyph_bitmap(this, MaterialIcon::ExpandMore, 16, ThemeColor::White, "monitir_err_open");
+    m_more_err_close = side_tools_glyph_bitmap(this, MaterialIcon::ExpandLess, 16, ThemeColor::White, "monitir_err_close");
     m_more_button = new ScalableButton(m_connection_info, wxID_ANY, "monitir_err_open");
+    m_more_button->SetBitmap(m_more_err_open.bmp());
     m_more_button->Bind(wxEVT_ENTER_WINDOW, [this](auto& e) {SetCursor(wxCURSOR_HAND); });
     m_more_button->Bind(wxEVT_LEAVE_WINDOW, [this](auto& e) {SetCursor(wxCURSOR_ARROW); });
     m_more_button->Bind(wxEVT_LEFT_DOWN, [this](auto& e) {

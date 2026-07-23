@@ -2,6 +2,7 @@
 #include "Label.hpp"
 #include "StateColor.hpp"
 #include "TextCtrl.h"
+#include "MaterialIcon.hpp"
 
 #include "slic3r/GUI/I18N.hpp"
 
@@ -160,6 +161,18 @@ void TextInput::SetIcon(const wxString &icon)
 {
     if (this->icon.name() == icon.ToStdString())
         return;
+    // MD3 leading icon as a Material Symbols glyph (kit ValueField/SelectField
+    // anatomy) for the handful of well-known raster names still routed through
+    // this string-keyed setter (e.g. ComboBox's trailing 'drop_down' chevron,
+    // inherited from TextInput -- see AMSMaterialsSetting.cpp). Falls back to
+    // the legacy raster for any name not in this table, or when the icon face
+    // is unavailable.
+    if (MaterialIcon::available() && icon == "drop_down") {
+        this->icon = ScalableBitmap();
+        this->icon.bmp() = MaterialIcon::bitmap(this, MaterialIcon::ExpandMore, 16, StateColor::semantic(MD3::Role::OnSurfaceVariant));
+        Rescale();
+        return;
+    }
     this->icon = ScalableBitmap(this, icon.ToStdString(), 16);
     Rescale();
 }

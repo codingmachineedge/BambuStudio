@@ -490,7 +490,6 @@ void SyncAmsInfoDialog::add_two_image_control()
     {
         m_two_image_panel = new StaticBox(m_two_thumbnail_panel);
         m_two_image_panel->SetBorderWidth(0);
-        //m_two_image_panel->SetForegroundColour(wxColour(248, 248, 248, 100));
         m_two_image_panel_sizer = new wxBoxSizer(wxHORIZONTAL);
         m_left_image_button     = new wxButton(m_two_image_panel, wxID_ANY, {}, wxDefaultPosition, wxSize(FromDIP(LEFT_THUMBNAIL_SIZE_WIDTH), FromDIP(LEFT_THUMBNAIL_SIZE_WIDTH)),
                                            wxBORDER_NONE | wxBU_AUTODRAW);

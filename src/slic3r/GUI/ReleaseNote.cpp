@@ -232,7 +232,7 @@ UpdateVersionDialog::UpdateVersionDialog(wxWindow *parent)
     wxBoxSizer *m_sizer_right = GetContentSizer();
 
     m_text_up_info = new Label(this, Label::Head_14, wxEmptyString, LB_AUTO_WRAP);
-    m_text_up_info->SetForegroundColour(ThemeColor::TextPrimary);
+    m_text_up_info->SetForegroundColour(StateColor::semantic(MD3::Role::OnSurface));
 
     m_simplebook_release_note = new wxSimplebook(this);
     m_simplebook_release_note->SetSize(wxSize(FromDIP(560), FromDIP(430)));

@@ -96,6 +96,20 @@ static wxColour device_primary_container_color() { return StateColor::semantic(M
 static wxColour device_control_color() { return StateColor::semantic(MD3::Role::SurfaceContainerHigh); }
 static wxColour device_control_emphasis_color() { return StateColor::semantic(MD3::Role::SurfaceContainerHighest); }
 
+// Kit icons-assets shared-dialog-action-icons (star->star): the 5-star rating
+// row (PrintingTaskPanel::m_score_star, ScoreDialog::m_score_star) expresses
+// lit/idle state through colour on the single 'star' Material Symbol glyph
+// (Primary vs OnSurfaceVariant, Device scheme) instead of two raster PNGs.
+// Falls back to the legacy score_star_light/score_star_dark bitmaps when the
+// merged Material Symbols face is unavailable.
+static wxBitmap score_star_bitmap(wxWindow *ref, bool lit)
+{
+    if (MaterialIcon::available())
+        return MaterialIcon::bitmap(ref, MaterialIcon::Star, 26, lit ? device_primary_color() : device_secondary_text_color());
+    ScalableBitmap star(nullptr, lit ? "score_star_light" : "score_star_dark", 26);
+    return star.bmp();
+}
+
 // Roboto Mono at an explicit design px + numeric weight, for the numeric
 // values the design renders in mono at a size outside the Label::Mono_*
 // helper set (the 28px progress percentage). Mirrors the private px->point
@@ -202,10 +216,13 @@ static wxBitmap device_idle_thumbnail_tile(wxWindow *ref, int logical_px)
             // the raw kit metric (comfortable.radius == 16) — no FromDIP here.
             gc->DrawRoundedRectangle(0, 0, logical_px, logical_px, MD3::Metrics::comfortable.radius);
             const int glyph_px = std::max(1, static_cast<int>(logical_px * 0.4 + 0.5));
-            gc->SetFont(MaterialIcon::font(glyph_px), device_secondary_text_color());
-            double gw = 0, gh = 0;
-            gc->GetTextExtent(MaterialIcon::text(MaterialIcon::DeployedCode), &gw, &gh);
-            gc->DrawText(MaterialIcon::text(MaterialIcon::DeployedCode), (logical_px - gw) / 2.0, (logical_px - gh) / 2.0);
+            // The variable icon face must not reach GDI+ as a font (heap
+            // corruption); composite a plain-GDI raster at device resolution
+            // and draw it in this scaled context's logical units.
+            const wxBitmap gb = MaterialIcon::bitmapPx(MaterialIcon::DeployedCode, glyph_px,
+                                                       device_secondary_text_color(), scale);
+            const double   gw = gb.GetWidth() / scale, gh = gb.GetHeight() / scale;
+            gc->DrawBitmap(gb, (logical_px - gw) / 2.0, (logical_px - gh) / 2.0, gw, gh);
             delete gc; // flush before the bitmap is read
         }
         mdc.SelectObject(wxNullBitmap);
@@ -1587,20 +1604,19 @@ void PrintingTaskPanel::create_panel(wxWindow *parent)
     for (int i = 0; i < m_score_star.size(); ++i) {
         m_score_star[i] = new ScalableButton(m_score_subtask_info, wxID_ANY, "score_star_dark", wxEmptyString, wxSize(FromDIP(26), FromDIP(26)), wxDefaultPosition,
                                              wxBU_EXACTFIT | wxNO_BORDER, true, 26);
+        m_score_star[i]->SetBitmap(score_star_bitmap(m_score_star[i], false));
         m_score_star[i]->SetMinSize(wxSize(FromDIP(26), FromDIP(26)));
         m_score_star[i]->SetMaxSize(wxSize(FromDIP(26), FromDIP(26)));
         m_score_star[i]->Bind(wxEVT_LEFT_DOWN, [this, i](auto &e) {
             for (int j = 0; j < m_score_star.size(); ++j) {
-                ScalableBitmap light_star = ScalableBitmap(nullptr, "score_star_light", 26);
-                m_score_star[j]->SetBitmap(light_star.bmp());
+                m_score_star[j]->SetBitmap(score_star_bitmap(m_score_star[j], true));
                 if (m_score_star[j] == m_score_star[i]) {
                     m_star_count = j + 1;
                     break;
                 }
             }
             for (int k = m_star_count; k < m_score_star.size(); ++k) {
-                ScalableBitmap dark_star = ScalableBitmap(nullptr, "score_star_dark", 26);
-                m_score_star[k]->SetBitmap(dark_star.bmp());
+                m_score_star[k]->SetBitmap(score_star_bitmap(m_score_star[k], false));
             }
             m_star_count_dirty = true;
             m_button_market_scoring->Enable(true);
@@ -1727,13 +1743,7 @@ void PrintingTaskPanel::msw_rescale()
 
     {
         for (int i = 0; i < m_score_star.size(); ++i) {
-            if (i < m_star_count) {
-                ScalableBitmap light_star = ScalableBitmap(nullptr, "score_star_light", 26);
-                m_score_star[i]->SetBitmap(light_star.bmp());
-            } else {
-                ScalableBitmap dark_star = ScalableBitmap(nullptr, "score_star_dark", 26);
-                m_score_star[i]->SetBitmap(dark_star.bmp());
-            }
+            m_score_star[i]->SetBitmap(score_star_bitmap(m_score_star[i], i < m_star_count));
         }
 
         m_button_market_scoring->Rescale();
@@ -2066,13 +2076,7 @@ void PrintingTaskPanel::set_star_count(int star_count)
     m_star_count = star_count;
 
     for (int i = 0; i < m_score_star.size(); ++i) {
-        if (i < star_count) {
-            ScalableBitmap light_star = ScalableBitmap(nullptr, "score_star_light", 26);
-            m_score_star[i]->SetBitmap(light_star.bmp());
-        } else {
-            ScalableBitmap dark_star = ScalableBitmap(nullptr, "score_star_dark", 26);
-            m_score_star[i]->SetBitmap(dark_star.bmp());
-        }
+        m_score_star[i]->SetBitmap(score_star_bitmap(m_score_star[i], i < star_count));
     }
 }
 
@@ -6574,7 +6578,7 @@ void StatusPanel::update_filament_loading_panel(MachineObject *obj)
 }
 
 ScoreDialog::ScoreDialog(wxWindow *parent, int design_id, std::string model_id, int profile_id, int rating_id, bool success_printed, int star_count)
-    : DPIDialog(parent, wxID_ANY, _L("Rate the Print Profile"), wxDefaultPosition, wxDefaultSize, wxCAPTION | wxCLOSE_BOX | wxRESIZE_BORDER)
+    : MD3Dialog(parent, _L("Rate the Print Profile"), wxEmptyString, MaterialIcon::Star)
     , m_design_id(design_id)
     , m_model_id(model_id)
     , m_profile_id(profile_id)
@@ -6583,18 +6587,23 @@ ScoreDialog::ScoreDialog(wxWindow *parent, int design_id, std::string model_id, 
     , m_success_printed(success_printed)
     , m_upload_status_code(StatusCode::CODE_NUMBER)
 {
+    // Migrated onto the MD3Dialog shell (containment/Dialog.prompt.md): the
+    // borderless 28px shell + header icon tile replace the native wxCAPTION
+    // title bar.
     m_tocken.reset(new int(0));
 
     wxBoxSizer *m_main_sizer = get_main_sizer();
 
-    this->SetSizer(m_main_sizer);
-    Fit();
+    GetContentSizer()->Add(m_main_sizer, 1, wxEXPAND);
     Layout();
+    GetSizer()->SetSizeHints(this);
+    Fit();
+    UpdateShape();
     wxGetApp().UpdateDlgDarkUI(this);
 }
 
 ScoreDialog::ScoreDialog(wxWindow *parent, ScoreData *score_data)
-    : DPIDialog(parent, wxID_ANY, _L("Rate the Print Profile"), wxDefaultPosition, wxDefaultSize, wxCAPTION | wxCLOSE_BOX | wxRESIZE_BORDER)
+    : MD3Dialog(parent, _L("Rate the Print Profile"), wxEmptyString, MaterialIcon::Star)
     , m_design_id(score_data->design_id)
     , m_rating_id(score_data->rating_id)
     , m_model_id(score_data->model_id)
@@ -6609,15 +6618,17 @@ ScoreDialog::ScoreDialog(wxWindow *parent, ScoreData *score_data)
 
     m_image_url_paths = score_data->image_url_paths;
 
-    this->SetSizer(m_main_sizer);
-    Fit();
+    GetContentSizer()->Add(m_main_sizer, 1, wxEXPAND);
     Layout();
+    GetSizer()->SetSizeHints(this);
+    Fit();
+    UpdateShape();
     wxGetApp().UpdateDlgDarkUI(this);
 }
 
 ScoreDialog::~ScoreDialog() {}
 
-void ScoreDialog::on_dpi_changed(const wxRect &suggested_rect) {}
+void ScoreDialog::on_dpi_changed(const wxRect &suggested_rect) { UpdateShape(); }
 
 void ScoreDialog::OnBitmapClicked(wxMouseEvent &event)
 {
@@ -6804,6 +6815,7 @@ wxBoxSizer *ScoreDialog::get_star_sizer()
         } else
             m_score_star[i] = new ScalableButton(this, wxID_ANY, "score_star_dark", wxEmptyString, wxSize(FromDIP(26), FromDIP(26)), wxDefaultPosition,
                                                  wxBU_EXACTFIT | wxNO_BORDER, true, 26);
+        m_score_star[i]->SetBitmap(score_star_bitmap(m_score_star[i], i < m_star_count));
 
         m_score_star[i]->SetMinSize(wxSize(FromDIP(26), FromDIP(26)));
         m_score_star[i]->SetMaxSize(wxSize(FromDIP(26), FromDIP(26)));
@@ -6819,16 +6831,14 @@ wxBoxSizer *ScoreDialog::get_star_sizer()
                 Fit();
             }
             for (int j = 0; j < m_score_star.size(); ++j) {
-                ScalableBitmap light_star = ScalableBitmap(nullptr, "score_star_light", 26);
-                m_score_star[j]->SetBitmap(light_star.bmp());
+                m_score_star[j]->SetBitmap(score_star_bitmap(m_score_star[j], true));
                 if (m_score_star[j] == m_score_star[i]) {
                     m_star_count = j + 1;
                     break;
                 }
             }
             for (int k = m_star_count; k < m_score_star.size(); ++k) {
-                ScalableBitmap dark_star = ScalableBitmap(nullptr, "score_star_dark", 26);
-                m_score_star[k]->SetBitmap(dark_star.bmp());
+                m_score_star[k]->SetBitmap(score_star_bitmap(m_score_star[k], false));
             }
         });
         static_score_star_sizer->Add(m_score_star[i], 1, wxEXPAND | wxLEFT, FromDIP(5));
@@ -6859,10 +6869,9 @@ void ScoreDialog::create_comment_text(const wxString &comment)
     m_comment_text->SetMinSize(wxSize(FromDIP(492), FromDIP(104)));
 
     m_comment_text->Bind(wxEVT_SET_FOCUS, [this](auto &event) {
-        if (wxGetApp().dark_mode()) {
-            m_comment_text->SetForegroundColour(wxColor(*wxWHITE));
-        } else
-            m_comment_text->SetForegroundColour(wxColor(*wxBLACK));
+        // Theme-adaptive OnSurface role instead of hand-branched *wxWHITE/*wxBLACK
+        // on dark_mode(), matching this file's StateColor::semantic pattern.
+        m_comment_text->SetForegroundColour(StateColor::semantic(MD3::Role::OnSurface));
         m_comment_text->Refresh();
         event.Skip();
     });
@@ -7141,11 +7150,9 @@ wxBoxSizer *ScoreDialog::get_main_sizer(const std::vector<std::pair<wxString, st
 {
     init();
     wxBoxSizer *m_main_sizer = new wxBoxSizer(wxVERTICAL);
-    // top line
-    auto m_line_top = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxSize(-1, 1), wxTAB_TRAVERSAL);
-    m_line_top->SetBackgroundColour(StateColor::semantic(MD3::Role::Outline));
-    m_main_sizer->Add(m_line_top, 0, wxEXPAND, 0);
-    m_main_sizer->Add(0, 0, 0, wxTOP, FromDIP(32));
+    // The MD3Dialog shell's own header already separates title from body, so
+    // the legacy Outline top divider line is dropped here (was redundant).
+    m_main_sizer->Add(0, 0, 0, wxTOP, FromDIP(8));
 
     warning_text = new wxStaticText(this, wxID_ANY, _L("At least one successful print record of this print profile is required \nto give a positive rating(4 or 5stars)."));
     warning_text->SetForegroundColour(StateColor::semantic(MD3::Role::Error));
