@@ -1452,3 +1452,19 @@ msgstr "正則表達式"
 #. reviewed-category: preferences
 msgid "Whole word"
 msgstr "全字詞"
+
+#. reviewed-category: preferences
+msgid "Text size"
+msgstr "文字大小"
+
+#. reviewed-category: preferences
+msgid "Small"
+msgstr "小"
+
+#. reviewed-category: preferences
+msgid "Large"
+msgstr "大"
+
+#. reviewed-category: preferences
+msgid "The quick brown fox"
+msgstr "敏捷嘅棕色狐狸"

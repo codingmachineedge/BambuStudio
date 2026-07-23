@@ -8,19 +8,93 @@
 #include "libslic3r/AppConfig.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
+#include <wx/app.h>
 #include <wx/dcclient.h>
 #include <wx/dcgraph.h>
+#include <wx/font.h>
+#include <wx/fontenum.h>
 #include <wx/settings.h>
 
 namespace {
 
-// Roboto is the Material Design UI face and is bundled as a private font (see
-// Label::initSysFont). CJK locales fall back to their bundled families because
-// Roboto carries no CJK glyphs.
-wxString md3FaceName(const std::string &lang_code)
+// The GUI_App's AppConfig, or nullptr when no app object exists yet. The very
+// first Label::initSysFont() runs from the CLI bootstrap (BambuStudio.cpp)
+// before GUI_Run() creates the wxApp, and wxGetApp() dereferences
+// wxApp::GetInstance(); guarding on it keeps that early call crash-safe (fonts
+// then build from defaults).
+Slic3r::AppConfig *uiAppConfig()
+{
+    if (!wxApp::GetInstance())
+        return nullptr;
+    return Slic3r::GUI::wxGetApp().app_config;
+}
+
+// Trimmed value of the "ui_font_family" AppConfig key ("" when unset/blank).
+std::string uiFontFamilyConfig()
+{
+    Slic3r::AppConfig *cfg = uiAppConfig();
+    if (!cfg)
+        return {};
+    std::string v = cfg->get("ui_font_family");
+    const auto  b = v.find_first_not_of(" \t\r\n");
+    if (b == std::string::npos)
+        return {};
+    const auto e = v.find_last_not_of(" \t\r\n");
+    return v.substr(b, e - b + 1);
+}
+
+// Raw "ui_font_scale" multiplier (1.0 when unset/invalid). The legible 0.8..1.4
+// clamp is applied by MD3::Type::setUiFontScale when the value is installed.
+double readUiFontScaleConfig()
+{
+    Slic3r::AppConfig *cfg = uiAppConfig();
+    if (!cfg)
+        return 1.0;
+    const std::string v = cfg->get("ui_font_scale");
+    if (v.empty())
+        return 1.0;
+    try {
+        return std::stod(v);
+    } catch (...) {
+        return 1.0;
+    }
+}
+
+bool isCJKLang(const std::string &lang_code)
+{
+    return lang_code == "zh_TW" || lang_code == "zh_HK" || lang_code == "yue_HK" ||
+           lang_code == "bilingual_en_yue_HK" || lang_code == "ja" || lang_code == "ko";
+}
+
+// True when `face` names an installed/registered family. wxFont::IsOk() alone is
+// insufficient — GDI substitutes a default face for an unknown name and still
+// reports Ok — so validate the name against the enumerated font list, with a
+// construct-and-compare fallback for faces that enumerate under a variant name.
+bool faceIsInstalled(const wxString &face)
+{
+    if (face.empty())
+        return false;
+    if (wxFontEnumerator::IsValidFacename(face))
+        return true;
+    wxFont probe(10, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL, false, face);
+    return probe.IsOk() && probe.GetFaceName() == face;
+}
+
+// True when `face` covers the CJK ideograph block (probe glyph U+4E00). Only
+// consulted for CJK locales so a user-picked ui_font_family lacking CJK glyphs
+// falls back to the locale's CJK face instead of rendering tofu. Defined per
+// platform after the Win32 include below (Windows probes the font's Unicode
+// ranges via GDI; other platforms rely on the toolkit's own glyph fallback).
+bool faceSupportsCJK(const wxString &face);
+
+// Bundled default UI face for a locale: Roboto for Latin, the platform CJK
+// family for CJK locales (Roboto carries no CJK glyphs). Used when no valid
+// user override applies.
+wxString md3DefaultFaceName(const std::string &lang_code)
 {
     if (lang_code == "zh_TW" || lang_code == "zh_HK" || lang_code == "yue_HK" ||
         lang_code == "bilingual_en_yue_HK") {
@@ -38,6 +112,22 @@ wxString md3FaceName(const std::string &lang_code)
         return wxString::FromUTF8("NanumGothic");
     }
     return wxString::FromUTF8("Roboto");
+}
+
+// UI face for a locale. A user-chosen "ui_font_family" wins when it is installed
+// and — for CJK locales — actually carries CJK glyphs; otherwise the bundled
+// Roboto/CJK default applies. A bundled private face named here is already
+// session-registered (see SessionFontRegistrar) and safe for the text path;
+// only the MaterialIcon plain-GDI path must avoid private faces (untouched).
+wxString md3FaceName(const std::string &lang_code)
+{
+    const std::string fam = uiFontFamilyConfig();
+    if (!fam.empty()) {
+        const wxString face = wxString::FromUTF8(fam);
+        if (faceIsInstalled(face) && (!isCJKLang(lang_code) || faceSupportsCJK(face)))
+            return face;
+    }
+    return md3DefaultFaceName(lang_code);
 }
 
 // Nearest wx font-weight enum for an MD3 numeric weight (400/500/600/700). Used
@@ -60,6 +150,7 @@ wxFont md3StyledFont(const MD3::TypeStyle &style, const std::string &lang_code)
 #ifndef __APPLE__
     point_size = point_size * 4.0 / 5.0; // design px -> wx point size
 #endif
+    point_size *= MD3::Type::uiFontScale(); // Appearance > Font size (runtime scale)
     const int          initial     = point_size < 1.0 ? 1 : static_cast<int>(point_size);
     const wxFontWeight enum_weight = md3WeightEnum(style.weight);
 
@@ -92,6 +183,7 @@ wxFont md3MonoFont(const MD3::TypeStyle &style)
 #ifndef __APPLE__
     point_size = point_size * 4.0 / 5.0; // design px -> wx point size
 #endif
+    point_size *= MD3::Type::uiFontScale(); // Appearance > Font size (runtime scale)
     const int          initial     = point_size < 1.0 ? 1 : static_cast<int>(point_size);
     const wxFontWeight enum_weight = md3WeightEnum(style.weight);
 
@@ -118,6 +210,8 @@ wxFont Label::sysFont(int size, bool bold, std::string lang_code)
 #ifndef __APPLE__
     size = size * 4 / 5;
 #endif
+    // Appearance > Font size (runtime scale), mirroring md3StyledFont/md3MonoFont.
+    size = std::max(1, static_cast<int>(std::lround(size * MD3::Type::uiFontScale())));
 
     wxString face = md3FaceName(lang_code);
 
@@ -197,6 +291,54 @@ bool add_app_font(const wxString &path) { return g_session_fonts.add(path); }
 static bool add_app_font(const wxString &path) { return wxFont::AddPrivateFont(path); }
 #endif
 
+namespace {
+#ifdef __WXMSW__
+// Probe the font's own Unicode ranges (via GDI) for the CJK ideograph U+4E00.
+// GDI font linking would silently substitute glyphs at draw time, so coverage
+// cannot be inferred by measuring text — it must be read from the face itself.
+// Any failure (bitmap face, unsupported query, unknown name) reports no coverage
+// so the caller keeps the locale's CJK fallback. Read-only GDI, no wx font path.
+bool faceSupportsCJK(const wxString &face)
+{
+    HDC hdc = ::CreateCompatibleDC(nullptr);
+    if (!hdc)
+        return false;
+    LOGFONTW lf{};
+    lf.lfCharSet = DEFAULT_CHARSET;
+    ::lstrcpynW(lf.lfFaceName, face.ToStdWstring().c_str(), LF_FACESIZE);
+    HFONT hfont = ::CreateFontIndirectW(&lf);
+    bool  has   = false;
+    if (hfont) {
+        HGDIOBJ     old = ::SelectObject(hdc, hfont);
+        const DWORD sz  = ::GetFontUnicodeRanges(hdc, nullptr);
+        if (sz) {
+            std::vector<unsigned char> buf(sz);
+            GLYPHSET *gs = reinterpret_cast<GLYPHSET *>(buf.data());
+            gs->cbThis   = sz;
+            if (::GetFontUnicodeRanges(hdc, gs)) {
+                for (DWORD i = 0; i < gs->cRanges && !has; ++i) {
+                    const WCRANGE &r    = gs->ranges[i];
+                    const unsigned low  = r.wcLow;
+                    const unsigned high = low + (r.cGlyphs ? r.cGlyphs - 1u : 0u);
+                    if (0x4E00u >= low && 0x4E00u <= high)
+                        has = true;
+                }
+            }
+        }
+        ::SelectObject(hdc, old);
+        ::DeleteObject(hfont);
+    }
+    ::DeleteDC(hdc);
+    return has;
+}
+#else
+// Non-Windows toolkits (Pango / Core Text) perform their own per-glyph fallback
+// at draw time, so CJK still renders even under a non-CJK primary face; accept
+// the user family here rather than probing coverage.
+bool faceSupportsCJK(const wxString &) { return true; }
+#endif
+} // namespace
+
 void Label::initSysFont(std::string lang_code, bool load_font_resource)
 {
     if (load_font_resource) {
@@ -241,12 +383,25 @@ void Label::initSysFont(std::string lang_code, bool load_font_resource)
         BOOST_LOG_TRIVIAL(info) << boost::format("add font of HarmonyOS_Sans_SC_Regular returns %1%")%result;
     }
 #endif
+    // Build the Head_/Body_/Mono_ font objects from the current AppConfig. Kept
+    // in rebuild_fonts so a later font-family / font-scale change can rebuild
+    // them without re-registering the bundled faces (which must happen once).
+    rebuild_fonts(lang_code);
+}
+
+void Label::rebuild_fonts(std::string lang_code)
+{
+    // Refresh the runtime UI font scale from AppConfig before (re)building, so
+    // every md3StyledFont/md3MonoFont point size below picks up the multiplier.
+    MD3::Type::setUiFontScale(readUiFontScaleConfig());
+
     // Retarget the Head_/Body_ helpers onto the MD3 type scale (see
     // Widgets/MD3Tokens.hpp, namespace MD3::Type) so the ~1200 existing call
     // sites inherit the design sizes and per-role weights unchanged. Head_
     // helpers carry the title/label emphasis weights (600-700); Body_ helpers
     // stay regular (400). Sizes/weights outside the named scale (display heads,
-    // 9/8px captions) use explicit tokens.
+    // 9/8px captions) use explicit tokens. The active UI face (md3FaceName) and
+    // scale both come from AppConfig (ui_font_family / ui_font_scale).
     Head_48 = md3StyledFont(MD3::TypeStyle{48.0f, 700}, lang_code); // display, above scale
     Head_32 = md3StyledFont(MD3::TypeStyle{32.0f, 700}, lang_code); // display, above scale
     Head_24 = md3StyledFont(MD3::Type::headline, lang_code);        // 23/700

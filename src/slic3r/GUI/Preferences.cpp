@@ -23,6 +23,7 @@
 #include "Widgets/MaterialIcon.hpp"
 #include "wx/graphics.h"
 #include <wx/dcgraph.h>
+#include <wx/fontenum.h>
 
 #include <wx/listimpl.cpp>
 #include <map>
@@ -2043,6 +2044,104 @@ wxWindow *PreferencesDialog::create_appearance_tab()
         accent_row->Add(sw, 0, wxRIGHT, FromDIP(10));
     }
 
+    // ---- UI font (family + size) --------------------------------------------
+    // Live preview label. Its font is re-fetched from the freshly rebuilt static
+    // Body_16 after every change so the sample repaints in the chosen family/scale
+    // even before the tree-wide re-theme walk runs. (Latin phrase is translatable;
+    // the CJK + digits sample is fixed so all three language modes exercise CJK
+    // fallback.)
+    auto *font_preview = new wxStaticText(
+        scrolled, wxID_ANY,
+        _L("The quick brown fox") + wxString::FromUTF8(" / \xE4\xB8\xAD\xE6\x96\x87\xE7\xA4\xBA\xE4\xBE\x8B 123"));
+    font_preview->SetForegroundColour(StateColor::semantic(MD3::Role::OnSurface));
+    font_preview->SetFont(::Label::Body_16);
+
+    // Shared apply step: persist has already happened at the call site; here we
+    // rebuild the static font table from AppConfig (family+scale) for the current
+    // language mode, refresh the preview's own font, then run the exact re-theme
+    // walk Density/Accent use so the live UI (and this dialog) repaints.
+    auto apply_fonts = [this, font_preview, scrolled]() {
+        ::Label::rebuild_fonts(I18N::language_mode_profile().font_language);
+        font_preview->SetFont(::Label::Body_16);
+        refresh_md3_appearance(this);
+        scrolled->Layout();
+        scrolled->FitInside();
+    };
+
+    // Font family: "Default" (ui_font_family "") + bundled Roboto + the installed
+    // system UI families (enumerated, '@'-vertical variants dropped, sorted
+    // case-insensitively, deduped, Roboto removed since it is listed explicitly).
+    std::vector<wxString>    font_labels = {_L("Default"), wxString::FromUTF8("Roboto")};
+    std::vector<std::string> font_values = {"", "Roboto"};
+    {
+        wxArrayString         faces = wxFontEnumerator::GetFacenames();
+        std::vector<wxString> sys;
+        for (const wxString &f : faces) {
+            if (f.IsEmpty() || f[0] == '@') continue;         // skip vertical CJK variants
+            if (f.IsSameAs(wxString::FromUTF8("Roboto"), false)) continue; // already listed
+            sys.push_back(f);
+        }
+        std::sort(sys.begin(), sys.end(), [](const wxString &a, const wxString &b) { return a.CmpNoCase(b) < 0; });
+        sys.erase(std::unique(sys.begin(), sys.end(), [](const wxString &a, const wxString &b) { return a.CmpNoCase(b) == 0; }), sys.end());
+        for (const wxString &f : sys) {
+            font_labels.push_back(f);
+            font_values.push_back(into_u8(f));
+        }
+    }
+
+    const std::string cur_family = app_config->get("ui_font_family");
+    int               family_idx = 0;
+    for (size_t i = 0; i < font_values.size(); ++i)
+        if (font_values[i] == cur_family) { family_idx = (int) i; break; }
+
+    auto *font_combo = new ::ComboBox(scrolled, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(FromDIP(LARGE_COMBOBOX_WIDTH), -1), 0, nullptr, wxCB_READONLY);
+    m_combobox_list[m_combobox_list.size()] = font_combo;
+    font_combo->SetFont(::Label::Body_13);
+    font_combo->GetDropDown().SetFont(::Label::Body_13);
+    font_combo->SetCornerRadius(FromDIP(10)); // MD3 SelectField r10
+    for (const wxString &l : font_labels) font_combo->Append(l);
+    font_combo->SetSelection(family_idx); // set before Bind so init does not re-fire
+    font_combo->GetDropDown().Bind(wxEVT_COMBOBOX, [this, font_values, apply_fonts](wxCommandEvent &e) {
+        const int idx = e.GetSelection();
+        if (idx >= 0 && idx < (int) font_values.size()) {
+            app_config->set("ui_font_family", font_values[idx]); // "" = default
+            app_config->save();
+            apply_fonts();
+        }
+        e.Skip();
+    });
+
+    // Text size: Small / Default / Large SegmentedControl -> ui_font_scale
+    // 0.9 / 1.0 / 1.15 (the font factory clamps 0.8..1.4 at read time).
+    static const std::vector<double>      kScaleVals = {0.9, 1.0, 1.15};
+    static const std::vector<std::string> kScaleStrs = {"0.9", "1.0", "1.15"};
+    auto *text_size = new MultiSwitchButton(scrolled);
+    m_segmented_list.push_back(text_size);
+    text_size->SetOptions({_L("Small"), _L("Default"), _L("Large")});
+    text_size->SetMinSize(wxSize(FromDIP(220), FromDIP(30)));
+    double cur_scale = 1.0;
+    try {
+        const std::string s = app_config->get("ui_font_scale");
+        if (!s.empty()) cur_scale = std::stod(s);
+    } catch (...) { cur_scale = 1.0; }
+    int    scale_idx  = 1;
+    double scale_best = 1e9;
+    for (size_t i = 0; i < kScaleVals.size(); ++i) {
+        const double diff = kScaleVals[i] - cur_scale;
+        const double d    = diff < 0 ? -diff : diff;
+        if (d < scale_best) { scale_best = d; scale_idx = (int) i; }
+    }
+    text_size->SetSelection(scale_idx); // set before Bind so init does not re-fire
+    text_size->Bind(wxCUSTOMEVT_MULTISWITCH_SELECTION, [this, apply_fonts](wxCommandEvent &e) {
+        const int idx = e.GetInt();
+        if (idx >= 0 && idx < (int) kScaleStrs.size()) {
+            app_config->set("ui_font_scale", kScaleStrs[idx]);
+            app_config->save();
+            apply_fonts();
+        }
+        e.Skip();
+    });
+
     sizer->Add(title, wxSizerFlags().Expand().Border(wxTOP, FromDIP(24)));
     sizer->AddSpacer(FromDIP(8));
     auto flags = wxSizerFlags().Expand().Border(wxTOP, FromDIP(8));
@@ -2058,6 +2157,11 @@ wxWindow *PreferencesDialog::create_appearance_tab()
     accent_line->Add(accent_lbl, wxSizerFlags().CenterVertical());
     accent_line->Add(accent_row, wxSizerFlags().CenterVertical().Border(wxRIGHT, FromDIP(ITEM_RIGHT_PADDING)));
     sizer->Add(accent_line, flags);
+
+    // UI font rows (family + size + live preview), consistent with the rows above.
+    sizer->Add(make_row(_L("Font"), font_combo), flags);
+    sizer->Add(make_row(_L("Text size"), text_size), flags);
+    sizer->Add(make_row(_L("Preview"), font_preview), flags);
 
     sizer->AddSpacer(FromDIP(20));
     scrolled->SetSizer(sizer);

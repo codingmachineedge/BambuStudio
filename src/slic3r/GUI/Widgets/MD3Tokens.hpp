@@ -489,6 +489,28 @@ inline constexpr const char *font_family = "Roboto";
 inline constexpr const char *font_mono   = "Roboto Mono";               // numeric / technical values
 inline constexpr const char *font_icon   = "Material Symbols Outlined"; // weight 400, FILL 1 when active
 
+// Runtime UI font scale (Appearance > Font size) — the type analogue of the
+// Metrics density state. Preferences reads the "ui_font_scale" AppConfig key and
+// installs the multiplier here via setUiFontScale(); the font factory multiplies
+// every computed point size by uiFontScale() when it (re)builds the
+// Head_/Body_/Mono_ fonts (see Label::rebuild_fonts / Label::sysFont). Clamped to
+// a legible 0.8..1.4 band. Like density, fonts are rebuilt once on change rather
+// than rescaled per paint, so this is only read at font-build time.
+inline double &ui_font_scale_state()
+{
+    static double s = 1.0;
+    return s;
+}
+
+inline void setUiFontScale(double scale)
+{
+    if (scale < 0.8) scale = 0.8;
+    if (scale > 1.4) scale = 1.4;
+    ui_font_scale_state() = scale;
+}
+
+inline double uiFontScale() { return ui_font_scale_state(); }
+
 } // namespace Type
 
 // Live accent generator — ports accentVars() from the design kit's

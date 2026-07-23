@@ -18354,6 +18354,18 @@ msgstr ""
 msgid "Whole word"
 msgstr ""
 
+msgid "Text size"
+msgstr ""
+
+msgid "Small"
+msgstr ""
+
+msgid "Large"
+msgstr ""
+
+msgid "The quick brown fox"
+msgstr ""
+
 #~ msgid "Second"
 #~ msgstr "Second"
 

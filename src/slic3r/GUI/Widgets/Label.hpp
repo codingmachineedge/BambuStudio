@@ -69,6 +69,14 @@ public:
 
 	static void initSysFont(std::string lang_code = "", bool load_font_resource = true);
 
+	// Rebuild the static Head_/Body_/Mono_ wxFonts from the CURRENT AppConfig
+	// (ui_font_family + ui_font_scale) without re-registering any font resource.
+	// Preferences calls this after a font-family / font-scale change, then the
+	// Appearance re-theme walk refreshes the live UI. initSysFont() delegates its
+	// font-object construction here after (optionally) registering the bundled
+	// faces.
+	static void rebuild_fonts(std::string lang_code = "");
+
     static wxFont sysFont(int size, bool bold = false, std::string lang_code = "");
 
     static wxSize split_lines(wxDC &dc, int width, const wxString &text, wxString &multiline_text, int max_count = 0);
