@@ -74,9 +74,12 @@ final value 80 for a 14px breathing gap; 80 is geometry-derived from the measure
 compile-gated but not yet re-captured); presets-up-to-date modal→toast PASS (no modal in a 39-frame
 watch); External-editor rows present in General (VS Code auto-detected) PASS; appearance
 Custom…/reset/MD3-preview present PASS; Other-tab toggle spacing PASS. Known cosmetic followups:
-Preview legend column alignment (chip filed — needs a sliced-state repro; investigated to the
-calculate_offsets/append_item pair in GCodeRenderer/BaseRenderer.cpp without a conclusive root
-cause). The Custom-accent-button edge clip was FIXED in-session (replaced with a 32px "+" tile
+Preview legend column alignment — RESOLVED (`809a230d6`): reproduced the sliced-cube Preview
+headlessly and found the FILAMENT|MODEL value columns were already aligned (header + value share
+`offsets_`); the real defect was the grey "Filament change times" / "Cost" summary rows crammed
+directly under the table. Fixed by wrapping them in the table's own ItemSpacing.y (6*m_scale) plus
+a spacer row so they get the same row advance; before/after headless crops confirm the summary
+rows now clear the value row. The Custom-accent-button edge clip was FIXED in-session (replaced with a 32px "+" tile
 matching the swatch geometry; headlessly re-verified, screenshots refreshed). The CI failure on
 9f450f86d/94f72d916 was root-caused to the Cantonese catalog gate: entries were added to the
 .po/.mo without updating bbl/i18n/yue_HK/coverage.json — fixed via the official
