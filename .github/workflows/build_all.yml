@@ -13,6 +13,13 @@ on:
 
   workflow_dispatch: {}
 
+# When several waves land on the same branch in quick succession, only the
+# newest push keeps building; superseded in-flight runs are cancelled (they
+# simply publish no release). The release job keeps its own serial group.
+concurrency:
+  group: build-all-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
